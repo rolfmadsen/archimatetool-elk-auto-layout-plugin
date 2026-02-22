@@ -258,11 +258,21 @@ public class ElkGraphBuilder {
         return name.endsWith("Service") || name.endsWith("Interface");
     }
 
-    return 1;
-
+    private int getAspectOrder(IArchimateElement element) {
+        // Active Structure (Layer 0) -> Rightmost under Direction.LEFT
+        if (element instanceof IActiveStructureElement) {
+            return 0;
+        }
+        // Behavior (Layer 1) -> Center
+        if (element instanceof IBehaviorElement) {
+            return 1;
+        }
+        // Passive Structure (Layer 2) -> Leftmost under Direction.LEFT
+        if (element instanceof IPassiveStructureElement) {
+            return 2;
+        }
+        return 3;
     }
-    // Active Structure (Layer 2) -> Leftmost
-    if(element instanceof IActiveStructureElement){return 2;}return 1;}
 
     public ElkNode getElkNode(IDiagramModelObject dmo) {
         return nodeMap.get(dmo);
