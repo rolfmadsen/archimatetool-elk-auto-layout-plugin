@@ -69,3 +69,57 @@ This project uses GitHub Actions for automated releases. To publish a new versio
 ## License
 
 This project is licensed under the MIT License.
+
+## Eclipse Layout Kernel (ELK) Demonstrator
+
+algorithm: elk.layered
+elk.direction: LEFT
+
+node Mode1 {
+    node Business {
+        elk.direction: LEFT
+        node ActiveStructure {
+            elk.direction: UP
+            node Actor
+            node Role
+            edge Actor -> Role
+        }
+        node Behaviour {
+            elk.direction: UP
+            node Function
+            node Process
+            node Service
+            edge Function -> Process
+            edge Process -> Service
+        }
+        node PassiveStructure {
+            node Data
+        }
+        edge ActiveStructure -> Behaviour
+        edge Behaviour -> PassiveStructure        
+    }
+    node Application {
+        elk.direction: LEFT
+        node ActiveStructure {
+            elk.direction: UP
+            node Application
+            node Interface
+            edge Application -> Interface
+        }
+        node Behaviour {
+            elk.direction: UP
+            node Function
+            node Process
+            node Service
+            edge Function -> Process
+            edge Process -> Service
+        }
+        node PassiveStructure {
+            node Data
+        }
+        edge ActiveStructure -> Behaviour
+        edge Behaviour -> PassiveStructure
+    }
+}
+
+Source: https://rtsys.informatik.uni-kiel.de/elklive/examples.html
