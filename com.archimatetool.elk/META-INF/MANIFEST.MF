@@ -1,0 +1,29 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: ELK Auto-Layout Plugin
+Bundle-SymbolicName: com.archimatetool.elk;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-Vendor: Archi Contrib
+Bundle-Description: Plugin to automatically layout ArchiMate diagrams using Eclipse Layout Kernel.
+Bundle-Localization: plugin
+Bundle-ClassPath: .,
+ lib/org.eclipse.elk.core_0.10.0.jar,
+ lib/org.eclipse.elk.alg.layered_0.10.0.jar,
+ lib/org.eclipse.elk.alg.common_0.10.0.jar,
+ lib/org.eclipse.elk.graph_0.10.0.jar
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: org.eclipse.ui,
+ org.eclipse.core.runtime,
+ org.eclipse.gef,
+ com.archimatetool.model,
+ org.eclipse.emf.ecore,
+ com.google.guava,
+ org.eclipse.jface,
+ com.archimatetool.editor
+Export-Package: org.eclipse.elk.core,
+ org.eclipse.elk.core.math,
+ org.eclipse.elk.core.options,
+ org.eclipse.elk.core.util,
+ org.eclipse.elk.graph,
+ org.eclipse.elk.graph.util
+Automatic-Module-Name: com.archimatetool.elk
