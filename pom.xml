@@ -28,6 +28,10 @@
         <module>com.archimatetool.jdom</module>
         <module>com.archimatetool.model</module>
         <module>com.archimatetool.widgets</module>
+        <module>org.eclipse.draw2d</module>
+        <module>org.eclipse.gef</module>
+        <module>org.eclipse.zest.core</module>
+        <module>org.eclipse.zest.layouts</module>
         <module>com.archimatetool.templates</module>
         <module>com.archimatetool.canvas</module>
         <module>com.archimatetool.editor</module>
