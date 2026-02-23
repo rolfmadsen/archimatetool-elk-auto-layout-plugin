@@ -31,11 +31,11 @@ jobs:
         # Copy jar file disregarding version so tag mismatches don't break the build
         cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
         touch target/package/archi-plugin
-        cd target/package && zip -r ../../elk-auto-layout-plugin-${{ github.ref_name }}.archiplugin *
+        cd target/package && zip -r ../../elk-auto-layout-plugin.archiplugin *
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        files: elk-auto-layout-plugin-${{ github.ref_name }}.archiplugin
+        files: elk-auto-layout-plugin.archiplugin
         generate_release_notes: true

@@ -1,8 +1,8 @@
 # Archi ELK Auto-Layout Plugin
 
 [![Java CI with Maven](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/rolfmadsen/archimatetool-elk-auto-layout-plugin?label=Latest%20release&include_prereleases)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest)
-[![Download Plugin](https://img.shields.io/badge/Download_Plugin-latest-blue)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/rolfmadsen/archimatetool-elk-auto-layout-plugin?label=Latest%20stable%20release&color=blue)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest)
+[![Latest Build](https://img.shields.io/badge/Latest_Build-bleeding_edge-orange)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml)
 
 > [!WARNING]
 > **Disclaimer: Vibe-Coded Software**
@@ -19,7 +19,10 @@ Unlike standard left-to-right graphs, this plugin perfectly understands the Arch
 ## 📥 Download & Installation
 
 **1. Download the Plugin:**
-[**Download the latest release plugin**](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest) (Look for the `.archiplugin` file in the **Assets** section).
+You have two options depending on your needs.
+
+*   **Stable Version (Recommended):** [**Download Official Release**](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest/download/elk-auto-layout-plugin.archiplugin)
+*   **Bleeding Edge (Latest Commit):** To get the absolute newest (but potentially unstable) features, click the **Latest Build** badge at the top of this page, select the most recent green checkmark, and download the `.archiplugin` from the **Artifacts** section at the bottom.
 
 **2. Install in Archi:**
 * Open Archi.
@@ -50,7 +53,7 @@ mvn clean install -Dtycho-version=5.0.2 -Dtycho.mode=maven -Dmaven.test.skip=tru
 mkdir -p target/package
 cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
 touch target/package/archi-plugin
-cd target/package && zip -r ../../elk-auto-layout-plugin-latest.archiplugin *
+cd target/package && zip -r ../../elk-auto-layout-plugin.archiplugin *
 ```
 
 ### How to Release
