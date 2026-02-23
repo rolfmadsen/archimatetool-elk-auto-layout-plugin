@@ -2,7 +2,7 @@
 
 [![Java CI with Maven](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml)
 [![Latest Release](https://img.shields.io/github/v/release/rolfmadsen/archimatetool-elk-auto-layout-plugin?label=Latest%20release&include_prereleases)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest)
-[![Download Plugin v1.0.0-alpha](https://img.shields.io/badge/Download_Plugin-v1.0.0--alpha-blue)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/download/v1.0.0-alpha/elk-auto-layout-plugin-v1.0.0-alpha.archiplugin)
+[![Download Plugin](https://img.shields.io/badge/Download_Plugin-latest-blue)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest)
 
 > [!WARNING]
 > **Disclaimer: Vibe-Coded Software**
@@ -19,7 +19,7 @@ Unlike standard left-to-right graphs, this plugin perfectly understands the Arch
 ## 📥 Download & Installation
 
 **1. Download the Plugin:**
-[**Download version 1.0.0-alpha**](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/download/v1.0.0-alpha/elk-auto-layout-plugin-v1.0.0-alpha.archiplugin)
+[**Download the latest release plugin**](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest) (Look for the `.archiplugin` file in the **Assets** section).
 
 **2. Install in Archi:**
 * Open Archi.
@@ -48,9 +48,9 @@ mvn clean install -Dtycho-version=5.0.2 -Dtycho.mode=maven -Dmaven.test.skip=tru
 # The .archiplugin package is created in the root target/package directory during CI
 # To create it locally, you can follow the same steps as in .github/workflows/build.yml
 mkdir -p target/package
-cp com.archimatetool.elk/target/com.archimatetool.elk-1.0.0-SNAPSHOT.jar target/package/
+cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
 touch target/package/archi-plugin
-cd target/package && zip -r ../../elk-auto-layout-plugin-v1.0.0-alpha.archiplugin *
+cd target/package && zip -r ../../elk-auto-layout-plugin-latest.archiplugin *
 ```
 
 ### How to Release
@@ -61,8 +61,8 @@ This project uses GitHub Actions for automated releases. To publish a new versio
 2.  Commit and push the change.
 3.  Create and push a git tag:
     ```bash
-    git tag -a v1.0.0-alpha -m "Release version 1.0.0-alpha"
-    git push origin v1.0.0-alpha
+    git tag -a v1.0.1 -m "Release version 1.0.1"
+    git push origin v1.0.1
     ```
 4.  The GitHub Action will automatically build the `.archiplugin` file and attach it to a new GitHub Release.
 

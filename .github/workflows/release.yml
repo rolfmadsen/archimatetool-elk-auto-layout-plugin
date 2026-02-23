@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '[0-9]*'
 
 jobs:
   build:
@@ -27,13 +28,14 @@ jobs:
     - name: Package .archiplugin
       run: |
         mkdir -p target/package
-        cp com.archimatetool.elk/target/com.archimatetool.elk-1.0.0-SNAPSHOT.jar target/package/
+        # Copy jar file disregarding version so tag mismatches don't break the build
+        cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
         touch target/package/archi-plugin
-        cd target/package && zip -r ../../elk-auto-layout-plugin-v1.0.0-alpha.archiplugin *
+        cd target/package && zip -r ../../elk-auto-layout-plugin-${{ github.ref_name }}.archiplugin *
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        files: elk-auto-layout-plugin-v1.0.0-alpha.archiplugin
+        files: elk-auto-layout-plugin-${{ github.ref_name }}.archiplugin
         generate_release_notes: true

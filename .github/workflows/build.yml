@@ -28,12 +28,12 @@ jobs:
     - name: Package .archiplugin
       run: |
         mkdir -p target/package
-        cp com.archimatetool.elk/target/com.archimatetool.elk-1.0.0-SNAPSHOT.jar target/package/
+        cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
         touch target/package/archi-plugin
-        cd target/package && zip -r ../../elk-auto-layout-plugin-v1.0.0-alpha.archiplugin *
+        cd target/package && zip -r ../../elk-auto-layout-plugin-latest.archiplugin *
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: elk-auto-layout-plugin-v1.0.0-alpha.archiplugin
-        path: elk-auto-layout-plugin-v1.0.0-alpha.archiplugin
+        name: elk-auto-layout-plugin-latest.archiplugin
+        path: elk-auto-layout-plugin-latest.archiplugin
