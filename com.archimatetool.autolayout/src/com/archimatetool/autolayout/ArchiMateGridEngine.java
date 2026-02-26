@@ -54,8 +54,14 @@ public class ArchiMateGridEngine {
     /** Vertical spacing between elements stacked within the same cell */
     private static final double CELL_PADDING_Y = 40;
 
+    /** Horizontal gap between siblings placed side by side */
+    private static final double SIBLING_GAP_X = 30;
+
+    /** Horizontal offset per stacked group for diagonal/staircase pattern */
+    private static final double DIAGONAL_OFFSET_X = 80;
+
     /** Horizontal gap between aspect columns */
-    private static final double COLUMN_GAP = 80;
+    private static final double COLUMN_GAP = 100;
     /** Vertical gap between sub-rows within the same layer */
     private static final double ROW_GAP = 40;
     /** Vertical gap between rows of different layers (larger visual separation) */
@@ -81,6 +87,15 @@ public class ArchiMateGridEngine {
     /** Grid cell: accumulates leaf elements for a (row, col) position */
     private static class GridCell {
         final List<IDiagramModelObject> elements = new ArrayList<>();
+    }
+
+    /**
+     * A group of sibling elements that share the same parent container.
+     * Siblings within a group are placed SIDE BY SIDE (horizontally).
+     * Groups themselves stack VERTICALLY (relationship direction UP).
+     */
+    private static class SiblingGroup {
+        final List<IDiagramModelObject> members = new ArrayList<>();
     }
 
     /** Computed layout result for a single diagram object */
@@ -114,8 +129,14 @@ public class ArchiMateGridEngine {
     /** Container hierarchy: parent DMO → list of child DMOs */
     private final Map<IDiagramModelObject, List<IDiagramModelObject>> containerChildren = new HashMap<>();
 
+    /** Reverse lookup: child DMO → its parent container DMO */
+    private final Map<IDiagramModelObject, IDiagramModelObject> dmoParent = new HashMap<>();
+
     /** Reverse lookup: DMO → its grid cell coordinates [row, col] */
     private final Map<IDiagramModelObject, int[]> dmoCell = new HashMap<>();
+
+    /** Per-cell sibling groups: [row][col] → list of SiblingGroups */
+    private final List<SiblingGroup>[][] cellGroups = new List[NUM_ROWS][NUM_COLS];
 
     // ═══════════════════════════════════════════════════════════════════════
     // Public API
@@ -143,6 +164,9 @@ public class ArchiMateGridEngine {
         // Phase 1.5: SORT — topologically order elements within cells by relationships
         sortCellElements();
 
+        // Phase 1.75: GROUP — group siblings for side-by-side placement
+        groupCellBySiblings();
+
         // Phase 2: SIZE — compute cell, column, and row dimensions
         computeGridDimensions();
 
@@ -151,6 +175,9 @@ public class ArchiMateGridEngine {
 
         // Phase 3.5: ALIGN — align elements with cross-column connections
         alignCrossColumnElements();
+
+        // Phase 3.75: DIAGONAL STAIRCASE — horizontally shift elements to prevent overlap
+        applyDiagonalOffsets();
 
         // Phase 4: WRAP — compute container bounds to wrap their children
         for (IDiagramModelObject dmo : diagramModel.getChildren()) {
@@ -180,6 +207,8 @@ public class ArchiMateGridEngine {
             for (IDiagramModelObject child : container.getChildren()) {
                 children.add(child);
                 classifyElement(child);
+                // Build reverse lookup: child → parent
+                dmoParent.put(child, dmo);
             }
             containerChildren.put(dmo, children);
         } else {
@@ -285,6 +314,73 @@ public class ArchiMateGridEngine {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // Phase 1.75: GROUP (Sibling grouping for side-by-side placement)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Group elements within each cell for side-by-side placement.
+     *
+     * Only NESTED SIBLINGS (children of the same diagram container)
+     * are grouped side by side. Non-nested elements each become their
+     * own group and stack vertically, allowing the ALIGN phase to
+     * match paired elements across columns for clean connections.
+     *
+     * Within a group, elements are placed SIDE BY SIDE (horizontally).
+     * Groups stack VERTICALLY (preserving the UP relationship direction).
+     * Order follows the topological sort from Phase 1.5.
+     */
+    private void groupCellBySiblings() {
+        for (int r = 0; r < NUM_ROWS; r++) {
+            for (int c = 0; c < NUM_COLS; c++) {
+                List<SiblingGroup> groups = new ArrayList<>();
+                cellGroups[r][c] = groups;
+
+                GridCell cell = grid[r][c];
+                if (cell.elements.isEmpty())
+                    continue;
+
+                // Group by shared diagram parent container
+                Map<IDiagramModelObject, SiblingGroup> parentToGroup = new HashMap<>();
+
+                for (IDiagramModelObject dmo : cell.elements) {
+                    IDiagramModelObject parent = dmoParent.get(dmo);
+
+                    if (parent != null && parentToGroup.containsKey(parent)) {
+                        // Add to existing sibling group
+                        parentToGroup.get(parent).members.add(dmo);
+                    } else {
+                        // Start a new group (single element or first of a parent)
+                        SiblingGroup group = new SiblingGroup();
+                        group.members.add(dmo);
+                        groups.add(group);
+                        if (parent != null) {
+                            parentToGroup.put(parent, group);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Gets the ArchiMate class name for the first element in a group,
+     * used to identify clusters of the exact same element type (e.g. ApplicationService).
+     */
+    private String getArchiMateClassName(SiblingGroup group) {
+        if (!group.members.isEmpty()) {
+            IDiagramModelObject dmo = group.members.get(0);
+            if (dmo instanceof com.archimatetool.model.IDiagramModelArchimateObject) {
+                com.archimatetool.model.IArchimateElement element = 
+                    ((com.archimatetool.model.IDiagramModelArchimateObject) dmo).getArchimateElement();
+                if (element != null) {
+                    return element.eClass().getName();
+                }
+            }
+        }
+        return "Unknown";
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // Phase 2: SIZE
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -292,30 +388,53 @@ public class ArchiMateGridEngine {
      * Compute the width/height of each cell, then derive column widths
      * and row heights from the maximum dimensions across cells.
      *
-     * Elements within a cell are stacked VERTICALLY (top to bottom).
-     * This ensures that:
-     * - Relationships within the same aspect column flow UP
-     * - Relationships across aspect columns flow LEFT (Active→Behavior→Passive)
+     * Within a SiblingGroup, elements are placed SIDE BY SIDE:
+     *   groupWidth  = sum(elem widths) + (n-1) * SIBLING_GAP_X
+     *   groupHeight = max(elem heights)
      *
-     * Cell width = widest element in the cell
-     * Cell height = sum of all element heights + spacing
+     * Groups stack VERTICALLY (relationship direction UP):
+     *   cellWidth  = max(groupWidths)
+     *   cellHeight = sum(groupHeights) + inter-group CELL_PADDING_Y
      */
     private void computeGridDimensions() {
         for (int r = 0; r < NUM_ROWS; r++) {
             for (int c = 0; c < NUM_COLS; c++) {
-                GridCell cell = grid[r][c];
-                if (cell.elements.isEmpty())
+                List<SiblingGroup> groups = cellGroups[r][c];
+                if (groups == null || groups.isEmpty())
                     continue;
 
                 double cellWidth = 0;
                 double cellHeight = 0;
-                for (int i = 0; i < cell.elements.size(); i++) {
-                    IDiagramModelObject dmo = cell.elements.get(i);
-                    double w = getWidth(dmo);
-                    double h = getHeight(dmo);
-                    cellWidth = Math.max(cellWidth, w);
-                    cellHeight += h;
-                    if (i > 0)
+
+                // Count how many groups exist for each ArchiMate type in this cell
+                Map<String, Integer> typeCounts = new HashMap<>();
+                for (SiblingGroup group : groups) {
+                    String type = getArchiMateClassName(group);
+                    typeCounts.put(type, typeCounts.getOrDefault(type, 0) + 1);
+                }
+
+                for (int g = 0; g < groups.size(); g++) {
+                    SiblingGroup group = groups.get(g);
+                    double groupWidth = 0;
+                    double groupHeight = 0;
+
+                    for (int i = 0; i < group.members.size(); i++) {
+                        double w = ELEM_WIDTH;
+                        double h = ELEM_HEIGHT;
+                        groupWidth += w;
+                        if (i > 0)
+                            groupWidth += SIBLING_GAP_X;
+                        groupHeight = Math.max(groupHeight, h);
+                    }
+
+                    // Only elements of the SAME type will staircase. Multiply DIAGONAL_OFFSET_X
+                    // by solely the number of same-type groups.
+                    int sameTypeCount = typeCounts.get(getArchiMateClassName(group));
+                    double effectiveWidth = groupWidth + (sameTypeCount - 1) * DIAGONAL_OFFSET_X;
+                    
+                    cellWidth = Math.max(cellWidth, effectiveWidth);
+                    cellHeight += groupHeight;
+                    if (g > 0)
                         cellHeight += CELL_PADDING_Y;
                 }
 
@@ -406,43 +525,66 @@ public class ArchiMateGridEngine {
     /**
      * Compute absolute (x, y) positions for every leaf element.
      *
-     * Elements within a cell are stacked VERTICALLY, centered horizontally
-     * within the column's allocated width. This creates a vertical flow
-     * within each aspect column so relationships point UP.
+     * SiblingGroups within a cell stack VERTICALLY (arrows flow UP).
+     * Within each SiblingGroup:
+     *   - Single element: centered horizontally in the column (unchanged)
+     *   - Multiple elements: placed SIDE BY SIDE, centered as a row
      */
     private void placeLeafElements() {
         for (int r = 0; r < NUM_ROWS; r++) {
             for (int c = 0; c < NUM_COLS; c++) {
-                GridCell cell = grid[r][c];
-                if (cell.elements.isEmpty())
+                List<SiblingGroup> groups = cellGroups[r][c];
+                if (groups == null || groups.isEmpty())
                     continue;
 
-                // Compute total height of elements in this cell
+                // Compute total height of all groups in this cell
                 double totalHeight = 0;
-                for (int i = 0; i < cell.elements.size(); i++) {
-                    totalHeight += getHeight(cell.elements.get(i));
-                    if (i > 0)
+                for (int g = 0; g < groups.size(); g++) {
+                    SiblingGroup group = groups.get(g);
+                    double groupHeight = 0;
+                    for (IDiagramModelObject dmo : group.members) {
+                        groupHeight = Math.max(groupHeight, ELEM_HEIGHT);
+                    }
+                    totalHeight += groupHeight;
+                    if (g > 0)
                         totalHeight += CELL_PADDING_Y;
                 }
 
                 // Center the stack vertically within the row
-                double startY = rowY[r] + (rowHeights[r] - totalHeight) / 2.0;
-                double curY = startY;
+                double curY = rowY[r] + (rowHeights[r] - totalHeight) / 2.0;
 
-                for (IDiagramModelObject dmo : cell.elements) {
-                    double w = getWidth(dmo);
-                    double h = getHeight(dmo);
+                for (SiblingGroup group : groups) {
+                    // Compute group dimensions
+                    double groupWidth = 0;
+                    double groupHeight = 0;
+                    for (int i = 0; i < group.members.size(); i++) {
+                        groupWidth += ELEM_WIDTH;
+                        if (i > 0)
+                            groupWidth += SIBLING_GAP_X;
+                        groupHeight = Math.max(groupHeight, ELEM_HEIGHT);
+                    }
 
-                    // Center horizontally within the column
-                    double x = colX[c] + (colWidths[c] - w) / 2.0;
+                    // Center the group horizontally within the column
+                    double groupStartX = colX[c] + (colWidths[c] - groupWidth) / 2.0;
+                    double curX = groupStartX;
 
-                    results.put(dmo, new LayoutResult(
-                            (int) Math.round(x),
-                            (int) Math.round(curY),
-                            (int) Math.round(w),
-                            (int) Math.round(h)));
+                    for (IDiagramModelObject dmo : group.members) {
+                        double w = ELEM_WIDTH;
+                        double h = ELEM_HEIGHT;
 
-                    curY += h + CELL_PADDING_Y;
+                        // Center each element vertically within the group row
+                        double y = curY + (groupHeight - h) / 2.0;
+
+                        results.put(dmo, new LayoutResult(
+                                (int) Math.round(curX),
+                                (int) Math.round(y),
+                                (int) Math.round(w),
+                                (int) Math.round(h)));
+
+                        curX += w + SIBLING_GAP_X;
+                    }
+
+                    curY += groupHeight + CELL_PADDING_Y;
                 }
             }
         }
@@ -459,10 +601,6 @@ public class ArchiMateGridEngine {
      * elements would otherwise be centered. Instead, each element is
      * shifted to align with the Y-center of its connected element(s)
      * in adjacent columns of the same row.
-     *
-     * Example: If Application Component (single element in Active col)
-     * is assigned to Application Process (one of two elements in
-     * Behavior col), Component's Y is shifted to match Process's Y.
      */
     private void alignCrossColumnElements() {
         for (int r = 0; r < NUM_ROWS; r++) {
@@ -523,6 +661,157 @@ public class ArchiMateGridEngine {
                         int newY = (int) Math.round(avgPartnerCenterY - myResult.height / 2.0);
                         results.put(dmo, new LayoutResult(
                                 myResult.x, newY, myResult.width, myResult.height));
+                    }
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Phase 3.75: DIAGONAL STAIRCASE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Applies the horizontal staircase offset based on the final, aligned Y coordinates.
+     * This ensures all columns staircase in the exact same direction (top-left to bottom-right),
+     * preventing criss-crossing lines and keeping parent single-elements perfectly centered relative
+     * to the staircase.
+     *
+     * After applying diagonal offsets, stretches all single elements in the same column
+     * to match the staircase width, so parent/child elements align visually with their siblings.
+     */
+    private void applyDiagonalOffsets() {
+        // Track max staircase width per column and which elements are in staircases
+        double[] colStaircaseWidth = new double[NUM_COLS];
+        Set<IDiagramModelObject> staircaseElements = new HashSet<>();
+
+        for (int r = 0; r < NUM_ROWS; r++) {
+            for (int c = 0; c < NUM_COLS; c++) {
+                List<SiblingGroup> groups = cellGroups[r][c];
+                if (groups == null || groups.size() <= 1)
+                    continue;
+
+                // Group the SiblingGroups by their exact ArchiMate class.
+                Map<String, List<SiblingGroup>> groupsByType = new HashMap<>();
+                for (SiblingGroup group : groups) {
+                    String type = getArchiMateClassName(group);
+                    groupsByType.computeIfAbsent(type, k -> new ArrayList<>()).add(group);
+                }
+
+                double columnCenterX = colX[c] + colWidths[c] / 2.0;
+
+                for (List<SiblingGroup> typeGroups : groupsByType.values()) {
+                    if (typeGroups.size() <= 1) {
+                        continue;
+                    }
+
+                    // Sort groups of this exact type by their physical Y coordinate
+                    List<SiblingGroup> sortedGroups = new ArrayList<>(typeGroups);
+                    sortedGroups.sort((g1, g2) -> {
+                        double y1 = results.get(g1.members.get(0)).y;
+                        double y2 = results.get(g2.members.get(0)).y;
+                        return Double.compare(y1, y2);
+                    });
+
+                    int n = sortedGroups.size();
+                    
+                    // 1. Calculate the exact width of each group
+                    double[] groupWidths = new double[n];
+                    for (int i = 0; i < n; i++) {
+                        SiblingGroup group = sortedGroups.get(i);
+                        double w = 0;
+                        for (int j = 0; j < group.members.size(); j++) {
+                            w += ELEM_WIDTH;
+                            if (j > 0) w += SIBLING_GAP_X;
+                        }
+                        groupWidths[i] = w;
+                    }
+
+                    // 2. Find the bounding box of the entire staircase structure relative to X=0
+                    double minStaircaseX = Double.MAX_VALUE;
+                    double maxStaircaseX = Double.MIN_VALUE;
+
+                    for (int i = 0; i < n; i++) {
+                        double centerOffset = (i - (n - 1) / 2.0) * DIAGONAL_OFFSET_X;
+                        double startX = centerOffset - groupWidths[i] / 2.0;
+                        double endX = centerOffset + groupWidths[i] / 2.0;
+                        minStaircaseX = Math.min(minStaircaseX, startX);
+                        maxStaircaseX = Math.max(maxStaircaseX, endX);
+                    }
+
+                    double staircaseWidth = maxStaircaseX - minStaircaseX;
+                    colStaircaseWidth[c] = Math.max(colStaircaseWidth[c], staircaseWidth);
+
+                    // 3. Apply the shift to perfectly center the entire staircase box in the column
+                    for (int i = 0; i < n; i++) {
+                        SiblingGroup group = sortedGroups.get(i);
+                        
+                        double centerOffset = (i - (n - 1) / 2.0) * DIAGONAL_OFFSET_X;
+                        double localStartX = centerOffset - groupWidths[i] / 2.0;
+                        double targetStartX = columnCenterX - (staircaseWidth / 2.0) + (localStartX - minStaircaseX);
+
+                        double curX = targetStartX;
+                        for (IDiagramModelObject dmo : group.members) {
+                            LayoutResult res = results.get(dmo);
+                            
+                            results.put(dmo, new LayoutResult(
+                                    (int) Math.round(curX), 
+                                    res.y, 
+                                    (int) Math.round(ELEM_WIDTH), 
+                                    res.height));
+                                    
+                            curX += ELEM_WIDTH + SIBLING_GAP_X;
+                            staircaseElements.add(dmo);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Stretch single elements in each column that have connections to staircase elements
+        for (int c = 0; c < NUM_COLS; c++) {
+            if (colStaircaseWidth[c] <= 0)
+                continue;
+            
+            double columnCenterX = colX[c] + colWidths[c] / 2.0;
+            int newWidth = (int) Math.round(colStaircaseWidth[c]);
+            int newX = (int) Math.round(columnCenterX - colStaircaseWidth[c] / 2.0);
+
+            for (int r = 0; r < NUM_ROWS; r++) {
+                List<SiblingGroup> groups = cellGroups[r][c];
+                if (groups == null)
+                    continue;
+
+                for (SiblingGroup group : groups) {
+                    if (group.members.size() != 1)
+                        continue;
+
+                    IDiagramModelObject dmo = group.members.get(0);
+                    if (staircaseElements.contains(dmo))
+                        continue;
+
+                    // Check if this element has any connection to a staircase element
+                    boolean connected = false;
+                    for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
+                        if (conn.getTarget() instanceof IDiagramModelObject
+                                && staircaseElements.contains(conn.getTarget())) {
+                            connected = true;
+                            break;
+                        }
+                    }
+                    if (!connected) {
+                        for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
+                            if (conn.getSource() instanceof IDiagramModelObject
+                                    && staircaseElements.contains(conn.getSource())) {
+                                connected = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (connected) {
+                        LayoutResult res = results.get(dmo);
+                        results.put(dmo, new LayoutResult(newX, res.y, newWidth, res.height));
                     }
                 }
             }
