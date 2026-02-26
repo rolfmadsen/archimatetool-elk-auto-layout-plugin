@@ -1,4 +1,4 @@
-package com.archimatetool.elk;
+package com.archimatetool.autolayout;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,22 +20,22 @@ import com.archimatetool.model.*;
  * - Internal (bottom): Processes, Functions, Actors, Components
  *
  * ╔═══════════════════╦══════════════════╦═════════════════════╦════════════════════╗
- * ║ ║ Col 0: Passive ║ Col 1: Behavior ║ Col 2: Active ║
+ * ║                   ║ Col 0: Passive   ║ Col 1: Behavior     ║ Col 2: Active      ║
  * ╠═══════════════════╬══════════════════╬═════════════════════╬════════════════════╣
- * ║ Row 9: Motivation ║ Meaning, Value ║ Goal, Principle... ║ Stakeholder ║
- * ║ Row 8: Strategy ║ ║ Capability, VStr ║ Resource ║
+ * ║ Row 9: Motivation ║ Meaning, Value   ║ Goal, Principle...  ║ Stakeholder        ║
+ * ║ Row 8: Strategy   ║                  ║ Capability, VStr    ║ Resource           ║
  * ╠═══════════════════╬══════════════════╬═════════════════════╬════════════════════╣
- * ║ Row 7: Biz Ext ║ Contract, Repr ║ BizService ║ BizInterface ║
- * ║ Row 6: Biz Int ║ BizObject ║ BizProcess, Func ║ Actor, Role ║
+ * ║ Row 7: Biz Ext    ║ Contract, Repr   ║ BizService          ║ BizInterface       ║
+ * ║ Row 6: Biz Int    ║ BizObject        ║ BizProcess, Func    ║ Actor, Role        ║
  * ╠═══════════════════╬══════════════════╬═════════════════════╬════════════════════╣
- * ║ Row 5: App Ext ║ ║ AppService ║ AppInterface ║
- * ║ Row 4: App Int ║ DataObject ║ AppProcess, Func ║ AppComponent ║
+ * ║ Row 5: App Ext    ║                  ║ AppService          ║ AppInterface       ║
+ * ║ Row 4: App Int    ║ DataObject       ║ AppProcess, Func    ║ AppComponent       ║
  * ╠═══════════════════╬══════════════════╬═════════════════════╬════════════════════╣
- * ║ Row 3: Tech Ext ║ ║ TechService ║ TechInterface ║
- * ║ Row 2: Tech Int ║ Artifact ║ TechProcess, Func ║ Node, Device ║
+ * ║ Row 3: Tech Ext   ║                  ║ TechService         ║ TechInterface      ║
+ * ║ Row 2: Tech Int   ║ Artifact         ║ TechProcess, Func   ║ Node, Device       ║
  * ╠═══════════════════╬══════════════════╬═════════════════════╬════════════════════╣
- * ║ Row 1: Physical ║ Material ║ ║ Facility, Equip ║
- * ║ Row 0: I&M ║ Deliverable, Gap ║ WorkPackage ║ ║
+ * ║ Row 1: Physical   ║ Material         ║                     ║ Facility, Equip    ║
+ * ║ Row 0: I&M        ║ Deliverable, Gap ║ WorkPackage         ║                    ║
  * ╚═══════════════════╩══════════════════╩═════════════════════╩════════════════════╝
  *
  * The grid is rendered top-to-bottom (Row 9 at top of screen, Row 0 at bottom).

@@ -10,9 +10,9 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>com.archimatetool.elk</artifactId>
+    <artifactId>com.archimatetool.autolayout</artifactId>
     <packaging>eclipse-plugin</packaging>
 
-    <name>ArchiMate Grid Auto-Layout Plugin</name>
+    <name>ArchiMate Layout Engine</name>
 
 </project>

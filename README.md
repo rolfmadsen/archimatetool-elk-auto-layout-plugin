@@ -1,7 +1,7 @@
-# Archi ELK Auto-Layout Plugin
+# Archi Auto-Layout Plugin
 
 [![Java CI with Maven](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/rolfmadsen/archimatetool-elk-auto-layout-plugin?label=Latest%20stable%20release&color=blue&include_prereleases)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest/download/elk-auto-layout-plugin.archiplugin)
+[![Latest Release](https://img.shields.io/github/v/release/rolfmadsen/archimatetool-elk-auto-layout-plugin?label=Latest%20stable%20release&color=blue&include_prereleases)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest/download/archi-auto-layout-plugin.archiplugin)
 [![Latest Build](https://img.shields.io/badge/Latest_Build-bleeding_edge-orange)](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/actions/workflows/build.yml)
 
 > [!WARNING]
@@ -10,7 +10,7 @@
 >
 > **CRITICAL**: Use this plugin at your own risk. The authors are not responsible for any model corruption.
 
-A plugin for [Archi](https://www.archimatetool.com) that implements a specialized auto-layout algorithm for ArchiMate diagrams using the Eclipse Layout Kernel (ELK). 
+A plugin for [Archi](https://www.archimatetool.com) that implements a specialized auto-layout algorithm for ArchiMate diagrams using a custom ArchiMate Grid Engine.
 
 Unlike standard left-to-right graphs, this plugin perfectly understands the ArchiMate metamodel and strictly forces a hierarchical architecture matrix:
 - **Vertical Strategy**: Motivation at the top, Strategy, Business, Application, Technology, and Implementation at the bottom.
@@ -21,7 +21,7 @@ Unlike standard left-to-right graphs, this plugin perfectly understands the Arch
 **1. Download the Plugin:**
 You have two options depending on your needs.
 
-*   **Stable Version (Recommended):** [**Download Official Release**](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest/download/elk-auto-layout-plugin.archiplugin)
+*   **Stable Version (Recommended):** [**Download Official Release**](https://github.com/rolfmadsen/archimatetool-elk-auto-layout-plugin/releases/latest/download/archi-auto-layout-plugin.archiplugin)
 *   **Bleeding Edge (Latest Commit):** To get the absolute newest (but potentially unstable) features, click the **Latest Build** badge at the top of this page, select the most recent green checkmark, and download the `.archiplugin` from the **Artifacts** section at the bottom.
 
 **2. Install in Archi:**
@@ -45,15 +45,15 @@ You have two options depending on your needs.
 To build the plugin and create the `.archiplugin` package:
 
 ```bash
-# Build the plugin using the simplified command
-mvn install -pl com.archimatetool.elk -am -DskipTests -T 1C
+# Build all modules
+mvn clean install -DskipTests
 
 # The .archiplugin package is created in the root target/package directory during CI
 # To create it locally, you can follow these steps:
 mkdir -p target/package
-cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
+cp com.archimatetool.autolayout/target/com.archimatetool.autolayout-*.jar target/package/
 touch target/package/archi-plugin
-cd target/package && zip -r ../../elk-auto-layout-plugin.archiplugin *
+cd target/package && zip -r ../../archi-auto-layout-plugin.archiplugin *
 ```
 
 ### How to Release
@@ -77,59 +77,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 This plugin is developed for [ArchiMateTool (Archi)](https://www.archimatetool.com), 
 Copyright (c) 2013-2026 Phillip Beauvoir, Jean-Baptiste Sarrodie, The Open Group. 
 Archi is also released under the MIT License.
-
-## Eclipse Layout Kernel (ELK) Demonstrator
-
-´´´ md
-algorithm: elk.layered
-elk.direction: LEFT
-
-node Mode1 {
-    node Business {
-        elk.direction: LEFT
-        node ActiveStructure {
-            elk.direction: UP
-            node Actor
-            node Role
-            edge Actor -> Role
-        }
-        node Behaviour {
-            elk.direction: UP
-            node Function
-            node Process
-            node Service
-            edge Function -> Process
-            edge Process -> Service
-        }
-        node PassiveStructure {
-            node Data
-        }
-        edge ActiveStructure -> Behaviour
-        edge Behaviour -> PassiveStructure        
-    }
-    node Application {
-        elk.direction: LEFT
-        node ActiveStructure {
-            elk.direction: UP
-            node Application
-            node Interface
-            edge Application -> Interface
-        }
-        node Behaviour {
-            elk.direction: UP
-            node Function
-            node Process
-            node Service
-            edge Function -> Process
-            edge Process -> Service
-        }
-        node PassiveStructure {
-            node Data
-        }
-        edge ActiveStructure -> Behaviour
-        edge Behaviour -> PassiveStructure
-    }
-}
-´´´
-
-Source: https://rtsys.informatik.uni-kiel.de/elklive/examples.html

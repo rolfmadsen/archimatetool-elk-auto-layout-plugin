@@ -23,17 +23,17 @@ jobs:
         cache: maven
         
     - name: Build with Maven
-      run: mvn -B install -pl com.archimatetool.elk -am -DskipTests -T 1C
+      run: mvn -B clean install -DskipTests
 
     - name: Package .archiplugin
       run: |
         mkdir -p target/package
-        cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
+        cp com.archimatetool.autolayout/target/com.archimatetool.autolayout-*.jar target/package/
         touch target/package/archi-plugin
-        cd target/package && zip -r ../../elk-auto-layout-plugin.archiplugin *
+        cd target/package && zip -r ../../archi-auto-layout-plugin.archiplugin *
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: elk-auto-layout-plugin.archiplugin
-        path: elk-auto-layout-plugin.archiplugin
+        name: archi-auto-layout-plugin.archiplugin
+        path: archi-auto-layout-plugin.archiplugin

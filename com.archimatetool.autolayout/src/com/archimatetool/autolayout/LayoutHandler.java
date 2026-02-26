@@ -1,4 +1,4 @@
-package com.archimatetool.elk;
+package com.archimatetool.autolayout;
 
 import java.util.Map;
 
@@ -12,7 +12,7 @@ import com.archimatetool.editor.diagram.IArchimateDiagramEditor;
 import com.archimatetool.model.*;
 
 /**
- * Command handler for the ArchiMate Grid Auto-Layout.
+ * Command handler for the ArchiMate Layout Engine.
  *
  * Invoked from the context menu on ArchiMate diagram editors.
  * Uses the custom ArchiMateGridEngine to compute a strict 2D grid

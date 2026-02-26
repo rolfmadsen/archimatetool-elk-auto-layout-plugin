@@ -35,7 +35,7 @@
         <module>com.archimatetool.templates</module>
         <module>com.archimatetool.canvas</module>
         <module>com.archimatetool.editor</module>
-        <module>com.archimatetool.elk</module>
+        <module>com.archimatetool.autolayout</module>
     </modules>
 
     <build>
