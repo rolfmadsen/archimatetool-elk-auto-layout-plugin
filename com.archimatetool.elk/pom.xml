@@ -13,47 +13,6 @@
     <artifactId>com.archimatetool.elk</artifactId>
     <packaging>eclipse-plugin</packaging>
 
-    <name>Archi ELK Auto-Layout Plugin</name>
+    <name>ArchiMate Grid Auto-Layout Plugin</name>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.eclipse.tycho</groupId>
-                <artifactId>tycho-compiler-plugin</artifactId>
-                <version>5.0.2</version>
-                <configuration>
-                    <extraClasspathElements>
-                        <extraClasspathElement>
-                            <groupId>org.eclipse.elk</groupId>
-                            <artifactId>org.eclipse.elk.core</artifactId>
-                            <version>0.10.0</version>
-                            <systemPath>${project.basedir}/lib/org.eclipse.elk.core_0.10.0.jar</systemPath>
-                            <scope>system</scope>
-                        </extraClasspathElement>
-                        <extraClasspathElement>
-                            <groupId>org.eclipse.elk</groupId>
-                            <artifactId>org.eclipse.elk.alg.layered</artifactId>
-                            <version>0.10.0</version>
-                            <systemPath>${project.basedir}/lib/org.eclipse.elk.alg.layered_0.10.0.jar</systemPath>
-                            <scope>system</scope>
-                        </extraClasspathElement>
-                        <extraClasspathElement>
-                            <groupId>org.eclipse.elk</groupId>
-                            <artifactId>org.eclipse.elk.alg.common</artifactId>
-                            <version>0.10.0</version>
-                            <systemPath>${project.basedir}/lib/org.eclipse.elk.alg.common_0.10.0.jar</systemPath>
-                            <scope>system</scope>
-                        </extraClasspathElement>
-                        <extraClasspathElement>
-                            <groupId>org.eclipse.elk</groupId>
-                            <artifactId>org.eclipse.elk.graph</artifactId>
-                            <version>0.10.0</version>
-                            <systemPath>${project.basedir}/lib/org.eclipse.elk.graph_0.10.0.jar</systemPath>
-                            <scope>system</scope>
-                        </extraClasspathElement>
-                    </extraClasspathElements>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
 </project>

@@ -1,5 +1,7 @@
 package com.archimatetool.elk;
 
+import java.util.Map;
+
 import org.eclipse.core.commands.AbstractHandler;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
@@ -7,8 +9,16 @@ import org.eclipse.ui.IWorkbenchPart;
 import org.eclipse.ui.handlers.HandlerUtil;
 
 import com.archimatetool.editor.diagram.IArchimateDiagramEditor;
-import com.archimatetool.model.IArchimateDiagramModel;
+import com.archimatetool.model.*;
 
+/**
+ * Command handler for the ArchiMate Grid Auto-Layout.
+ *
+ * Invoked from the context menu on ArchiMate diagram editors.
+ * Uses the custom ArchiMateGridEngine to compute a strict 2D grid
+ * layout, then applies the computed bounds back to the diagram
+ * via GEF commands (supporting undo/redo).
+ */
 public class LayoutHandler extends AbstractHandler {
 
     public Object execute(ExecutionEvent event) throws ExecutionException {
@@ -20,48 +30,44 @@ public class LayoutHandler extends AbstractHandler {
                 IArchimateDiagramModel diagramModel = (IArchimateDiagramModel) editor.getModel();
 
                 if (diagramModel != null) {
-                    // 1. Build ELK Graph
-                    ElkGraphBuilder builder = new ElkGraphBuilder();
-                    org.eclipse.elk.graph.ElkNode rootNode = builder.buildGraph(diagramModel);
+                    // 1. Compute grid layout
+                    ArchiMateGridEngine engine = new ArchiMateGridEngine();
+                    Map<IDiagramModelObject, ArchiMateGridEngine.LayoutResult> layoutResults = engine
+                            .computeLayout(diagramModel);
 
-                    org.eclipse.jface.dialogs.MessageDialog.openInformation(
-                            org.eclipse.ui.PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(),
-                            "ELK Layout Diagnostic",
-                            "Starting ELK layout on " + diagramModel.getChildren().size() + " root objects.\n"
-                                    + "Root node has " + rootNode.getChildren().size() + " Elk children.");
-
-                    // 2. Execute Layout
-                    org.eclipse.elk.core.RecursiveGraphLayoutEngine engine = new org.eclipse.elk.core.RecursiveGraphLayoutEngine();
-                    engine.layout(rootNode, new org.eclipse.elk.core.util.BasicProgressMonitor());
-
-                    // 3. Apply Coordinates via GEF Command
+                    // 2. Build compound command (supports undo/redo)
                     org.eclipse.gef.commands.CompoundCommand compoundCommand = new org.eclipse.gef.commands.CompoundCommand(
-                            "Make ELK Layout");
+                            "ArchiMate Grid Layout");
 
                     int modifiedCount = 0;
-                    for (com.archimatetool.model.IDiagramModelObject modelObject : diagramModel.getChildren()) {
-                        if (applyBoundsCommand(builder, modelObject, compoundCommand)) {
+                    for (Map.Entry<IDiagramModelObject, ArchiMateGridEngine.LayoutResult> entry : layoutResults
+                            .entrySet()) {
+                        IDiagramModelObject dmo = entry.getKey();
+                        ArchiMateGridEngine.LayoutResult result = entry.getValue();
+
+                        if (applyLayoutResult(dmo, result, compoundCommand)) {
                             modifiedCount++;
                         }
                     }
 
+                    // 3. Execute via command stack
                     if (compoundCommand.canExecute()) {
                         org.eclipse.gef.commands.CommandStack stack = (org.eclipse.gef.commands.CommandStack) editor
-                                .getAdapter(org.eclipse.gef.commands.CommandStack.class);
+                                .getAdapter(
+                                        org.eclipse.gef.commands.CommandStack.class);
                         if (stack != null) {
                             stack.execute(compoundCommand);
                             org.eclipse.jface.dialogs.MessageDialog.openInformation(
                                     org.eclipse.ui.PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(),
-                                    "ELK Layout Diagnostic",
-                                    "Layout complete!\nRoot graph size: " + rootNode.getWidth() + "x"
-                                            + rootNode.getHeight() + "\nApplied coordinates to " + modifiedCount
-                                            + " elements.");
+                                    "ArchiMate Grid Layout",
+                                    "Layout complete!\nPositioned " + modifiedCount
+                                            + " elements on the ArchiMate grid.");
                         }
                     } else {
                         org.eclipse.jface.dialogs.MessageDialog.openInformation(
                                 org.eclipse.ui.PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(),
-                                "ELK Layout",
-                                "No layout commands to execute (compoundCommand.canExecute() is false or no bounds changed).");
+                                "ArchiMate Grid Layout",
+                                "No elements to layout.");
                     }
                 }
             }
@@ -74,87 +80,72 @@ public class LayoutHandler extends AbstractHandler {
 
             org.eclipse.jface.dialogs.MessageDialog.openError(
                     org.eclipse.ui.PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(),
-                    "ELK Layout Error", t.getClass().getName() + ": " + t.getMessage() + "\n\n"
+                    "ArchiMate Grid Layout Error",
+                    t.getClass().getName() + ": " + t.getMessage() + "\n\n"
                             + stackTrace.substring(0, Math.min(stackTrace.length(), 1000)));
         }
 
         return null;
     }
 
-    private boolean applyBoundsCommand(ElkGraphBuilder builder, com.archimatetool.model.IDiagramModelObject dmo,
+    /**
+     * Creates a GEF command to apply computed layout bounds to a diagram object.
+     * Also clears bendpoints on source connections to allow clean routing.
+     * Supports full undo/redo.
+     */
+    private boolean applyLayoutResult(
+            IDiagramModelObject dmo,
+            ArchiMateGridEngine.LayoutResult result,
             org.eclipse.gef.commands.CompoundCommand compoundCommand) {
-        boolean modified = false;
-        org.eclipse.elk.graph.ElkNode elkNode = builder.getElkNode(dmo);
-        if (elkNode != null) {
-            // Calculate absolute coordinates by traversing up the parent hierarchy
-            double x = elkNode.getX();
-            double y = elkNode.getY();
-            org.eclipse.elk.graph.ElkNode parent = elkNode.getParent();
-            while (parent != null && parent.getParent() != null) { // rootNode has no parent
-                x += parent.getX();
-                y += parent.getY();
-                parent = parent.getParent();
-            }
 
-            final com.archimatetool.model.IBounds oldBounds = dmo.getBounds();
-            final com.archimatetool.model.IBounds newBounds = com.archimatetool.model.IArchimateFactory.eINSTANCE
-                    .createBounds((int) x, (int) y, (int) elkNode.getWidth(), (int) elkNode.getHeight());
+        final IBounds oldBounds = dmo.getBounds();
+        final IBounds newBounds = IArchimateFactory.eINSTANCE.createBounds(
+                result.x, result.y, result.width, result.height);
 
-            final java.util.Map<com.archimatetool.model.IDiagramModelConnection, java.util.List<com.archimatetool.model.IDiagramModelBendpoint>> oldBendpoints = new java.util.HashMap<>();
-            for (Object o : dmo.getSourceConnections()) {
-                if (o instanceof com.archimatetool.model.IDiagramModelConnection) {
-                    com.archimatetool.model.IDiagramModelConnection conn = (com.archimatetool.model.IDiagramModelConnection) o;
-                    oldBendpoints.put(conn, new java.util.ArrayList<>(conn.getBendpoints()));
-                }
-            }
-
-            org.eclipse.gef.commands.Command cmd = new org.eclipse.gef.commands.Command() {
-                @Override
-                public void execute() {
-                    dmo.setBounds(newBounds);
-                    // Clear bendpoints of source connections to allow straight/orthogonal routing
-                    // automatically
-                    for (Object o : dmo.getSourceConnections()) {
-                        if (o instanceof com.archimatetool.model.IDiagramModelConnection) {
-                            ((com.archimatetool.model.IDiagramModelConnection) o).getBendpoints().clear();
-                        }
-                    }
-                    // Force refresh trigger as per Archi plugin docs
-                    dmo.getFeatures().putString("refresh-trigger", "true");
-                    dmo.getFeatures().remove("refresh-trigger");
-                }
-
-                @Override
-                public void undo() {
-                    dmo.setBounds(oldBounds);
-                    for (Object o : dmo.getSourceConnections()) {
-                        if (o instanceof com.archimatetool.model.IDiagramModelConnection) {
-                            com.archimatetool.model.IDiagramModelConnection conn = (com.archimatetool.model.IDiagramModelConnection) o;
-                            java.util.List<com.archimatetool.model.IDiagramModelBendpoint> bps = oldBendpoints
-                                    .get(conn);
-                            if (bps != null) {
-                                conn.getBendpoints().clear();
-                                conn.getBendpoints().addAll(bps);
-                            }
-                        }
-                    }
-                    dmo.getFeatures().putString("refresh-trigger", "true");
-                    dmo.getFeatures().remove("refresh-trigger");
-                }
-            };
-            compoundCommand.add(cmd);
-            modified = true;
-        }
-
-        // Recursively apply to children
-        if (dmo instanceof com.archimatetool.model.IDiagramModelContainer) {
-            for (com.archimatetool.model.IDiagramModelObject child : ((com.archimatetool.model.IDiagramModelContainer) dmo)
-                    .getChildren()) {
-                if (applyBoundsCommand(builder, child, compoundCommand)) {
-                    modified = true;
-                }
+        // Save old bendpoints for undo
+        final java.util.Map<IDiagramModelConnection, java.util.List<IDiagramModelBendpoint>> oldBendpoints = new java.util.HashMap<>();
+        for (Object o : dmo.getSourceConnections()) {
+            if (o instanceof IDiagramModelConnection) {
+                IDiagramModelConnection conn = (IDiagramModelConnection) o;
+                oldBendpoints.put(conn, new java.util.ArrayList<>(conn.getBendpoints()));
             }
         }
-        return modified;
+
+        org.eclipse.gef.commands.Command cmd = new org.eclipse.gef.commands.Command() {
+            @Override
+            public void execute() {
+                dmo.setBounds(newBounds);
+                // Clear all bendpoints — let connections route directly
+                for (Object o : dmo.getSourceConnections()) {
+                    if (o instanceof IDiagramModelConnection) {
+                        ((IDiagramModelConnection) o).getBendpoints().clear();
+                    }
+                }
+                // Force diagram refresh (per Archi plugin docs)
+                dmo.getFeatures().putString("refresh-trigger", "true");
+                dmo.getFeatures().remove("refresh-trigger");
+            }
+
+            @Override
+            public void undo() {
+                dmo.setBounds(oldBounds);
+                // Restore original bendpoints
+                for (Object o : dmo.getSourceConnections()) {
+                    if (o instanceof IDiagramModelConnection) {
+                        IDiagramModelConnection conn = (IDiagramModelConnection) o;
+                        java.util.List<IDiagramModelBendpoint> bps = oldBendpoints.get(conn);
+                        if (bps != null) {
+                            conn.getBendpoints().clear();
+                            conn.getBendpoints().addAll(bps);
+                        }
+                    }
+                }
+                dmo.getFeatures().putString("refresh-trigger", "true");
+                dmo.getFeatures().remove("refresh-trigger");
+            }
+        };
+
+        compoundCommand.add(cmd);
+        return true;
     }
 }

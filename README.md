@@ -45,11 +45,11 @@ You have two options depending on your needs.
 To build the plugin and create the `.archiplugin` package:
 
 ```bash
-# Build the entire reactor (includes all dependencies)
-mvn clean install -Dtycho-version=5.0.2 -Dtycho.mode=maven -Dmaven.test.skip=true
+# Build the plugin using the simplified command
+mvn install -pl com.archimatetool.elk -am -DskipTests -T 1C
 
 # The .archiplugin package is created in the root target/package directory during CI
-# To create it locally, you can follow the same steps as in .github/workflows/build.yml
+# To create it locally, you can follow these steps:
 mkdir -p target/package
 cp com.archimatetool.elk/target/com.archimatetool.elk-*.jar target/package/
 touch target/package/archi-plugin
@@ -69,9 +69,14 @@ This project uses GitHub Actions for automated releases. To publish a new versio
     ```
 4.  The GitHub Action will automatically build the `.archiplugin` file and attach it to a new GitHub Release.
 
-## License
 
-This project is licensed under the MIT License.
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Credits
+This plugin is developed for [ArchiMateTool (Archi)](https://www.archimatetool.com), 
+Copyright (c) 2013-2026 Phillip Beauvoir, Jean-Baptiste Sarrodie, The Open Group. 
+Archi is also released under the MIT License.
 
 ## Eclipse Layout Kernel (ELK) Demonstrator
 
