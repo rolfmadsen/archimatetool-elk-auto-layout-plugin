@@ -10,11 +10,50 @@
 >
 > **CRITICAL**: Use this plugin at your own risk. The authors are not responsible for any model corruption.
 
-A plugin for [Archi](https://www.archimatetool.com) that implements a specialized auto-layout algorithm for ArchiMate diagrams using a custom ArchiMate Grid Engine.
+A plugin for [Archi](https://www.archimatetool.com) that automatically arranges ArchiMate diagrams into a clean, standards-aligned layout with a single click.
 
-Unlike standard left-to-right graphs, this plugin perfectly understands the ArchiMate metamodel and strictly forces a hierarchical architecture matrix:
-- **Vertical Strategy**: Motivation at the top, Strategy, Business, Application, Technology, and Implementation at the bottom.
-- **Horizontal Strategy**: Active Structure mapped to the Right, Behavior mapped to the Center, and Passive Structure mapped to the Left.
+Unlike generic graph layout algorithms, this plugin understands the ArchiMate metamodel and organizes your diagrams into the characteristic **architecture matrix** — the same structure used in the ArchiMate specification itself.
+
+## What It Does
+
+Open any ArchiMate view, run the plugin, and your diagram is instantly reorganized into a structured grid layout:
+
+### Architecture Matrix Alignment
+
+Every element is placed according to its ArchiMate classification:
+
+| | Passive Structure (Left) | Behavior (Center) | Active Structure (Right) |
+|---|---|---|---|
+| **Motivation** | Meaning, Value | Goal, Principle, Requirement… | Stakeholder, Driver… |
+| **Strategy** | Resource | Capability, Value Stream… | Resource |
+| **Business** | Business Object, Contract… | Business Process, Function… | Business Actor, Role… |
+| **Application** | Data Object | Application Function, Process… | Application Component… |
+| **Technology** | Artifact | Technology Function, Process… | Node, Device, System Software… |
+| **Implementation** | Deliverable, Gap | Work Package | — |
+
+- **Vertical axis** follows the ArchiMate layer hierarchy: Motivation at the top, down through Strategy, Business, Application, Technology, and Implementation & Migration at the bottom.
+- **Horizontal axis** maps the three ArchiMate aspects: Active Structure on the right, Behavior in the center, and Passive Structure on the left.
+- **Internal / External sub-rows**: Each layer is further split so that externally visible elements (Services, Interfaces, Contracts) appear above their internal counterparts (Processes, Functions, Components).
+
+### Intelligent Element Arrangement
+
+Beyond simple grid placement, the plugin applies several smart layout passes:
+
+- **Cross-aspect alignment** — Elements connected by relationships across the three aspect columns (e.g., Application Component → Application Function → Data Object) are aligned at the same vertical height, producing clean horizontal connection lines.
+- **Diagonal staircase** — When multiple sibling elements of the same type share a common parent or child (e.g., three Application Components under one parent), they are arranged in a top-left to bottom-right diagonal staircase pattern, preventing overlap and making relationships easy to trace.
+- **Horizontal stretch** — When siblings form a diagonal staircase, the element they all connect to — their common parent or child — is automatically stretched in width to span the full staircase, visually anchoring the group.
+- **Vertical stretch** — The same logic applied vertically: when an element connects to multiple elements at different heights across aspect columns, it is stretched in height to span them.
+- **Centering** — A single element is centered over its connected elements within the same aspect column (e.g., an Application Interface positioned directly above the Application Component it belongs to, rather than drifting to the column center).
+- **Container wrapping** — Grouping elements (such as Application Components containing child elements) automatically grow to enclose their children with appropriate padding.
+- **Grid snapping** — All positions and dimensions align to the diagram grid from your Archi preferences, producing a clean, pixel-perfect result.
+
+### Respects Your Preferences
+
+The plugin reads your settings from **Edit > Preferences > Diagram**:
+
+- **Element width and height** from the Appearance defaults
+- **Grid size** for pixel-perfect alignment
+- **Margin width** for diagram padding
 
 ## 📥 Download & Installation
 
@@ -46,10 +85,9 @@ To build the plugin and create the `.archiplugin` package:
 
 ```bash
 # Build all modules
-mvn clean install -DskipTests
-
 # The .archiplugin package is created in the root target/package directory during CI
 # To create it locally, you can follow these steps:
+mvn clean install -DskipTests
 mkdir -p target/package
 cp com.archimatetool.autolayout/target/com.archimatetool.autolayout-*.jar target/package/
 touch target/package/archi-plugin

@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 
+import com.archimatetool.editor.ArchiPlugin;
+import com.archimatetool.editor.preferences.IPreferenceConstants;
 import com.archimatetool.model.*;
 
 /**
@@ -46,34 +48,39 @@ public class ArchiMateGridEngine {
     // Configuration Constants
     // ═══════════════════════════════════════════════════════════════════════
 
-    /** Default element width */
-    private static final double ELEM_WIDTH = 120;
-    /** Default element height */
-    private static final double ELEM_HEIGHT = 55;
+    /** Element width — read from Archi preferences (Edit > Preferences > Diagram > Appearance) */
+    private final double ELEM_WIDTH;
+    /** Element height — read from Archi preferences */
+    private final double ELEM_HEIGHT;
+
+    /** Grid size in pixels — read from Archi preferences (Edit > Preferences > Diagram) */
+    private final int GRID_SIZE;
+    /** Diagram margin width — read from Archi preferences */
+    private final int MARGIN;
 
     /** Vertical spacing between elements stacked within the same cell */
-    private static final double CELL_PADDING_Y = 40;
+    private final double CELL_PADDING_Y;
 
     /** Horizontal gap between siblings placed side by side */
-    private static final double SIBLING_GAP_X = 30;
+    private final double SIBLING_GAP_X;
 
     /** Horizontal offset per stacked group for diagonal/staircase pattern */
-    private static final double DIAGONAL_OFFSET_X = 80;
+    private final double DIAGONAL_OFFSET_X;
 
     /** Horizontal gap between aspect columns */
-    private static final double COLUMN_GAP = 100;
+    private final double COLUMN_GAP;
     /** Vertical gap between sub-rows within the same layer */
-    private static final double ROW_GAP = 40;
+    private final double ROW_GAP;
     /** Vertical gap between rows of different layers (larger visual separation) */
-    private static final double LAYER_GAP = 80;
+    private final double LAYER_GAP;
 
-    /** Padding around the entire grid */
-    private static final double GRID_MARGIN = 40;
+    /** Padding around the entire grid — from Archi margin width preference */
+    private final double GRID_MARGIN;
 
     /** Container padding (top extra for label) */
-    private static final double CONTAINER_PAD_TOP = 35;
-    private static final double CONTAINER_PAD_SIDE = 15;
-    private static final double CONTAINER_PAD_BOTTOM = 15;
+    private final double CONTAINER_PAD_TOP;
+    private final double CONTAINER_PAD_SIDE;
+    private final double CONTAINER_PAD_BOTTOM;
 
     /** Number of grid rows (7 original + 3 sub-row splits) */
     private static final int NUM_ROWS = 10; // Rows 0-9
@@ -138,6 +145,43 @@ public class ArchiMateGridEngine {
     /** Per-cell sibling groups: [row][col] → list of SiblingGroups */
     private final List<SiblingGroup>[][] cellGroups = new List[NUM_ROWS][NUM_COLS];
 
+    /** Elements that participate in a diagonal staircase (set by applyDiagonalOffsets) */
+    private final Set<IDiagramModelObject> staircaseElements = new HashSet<>();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Constructor
+    // ═══════════════════════════════════════════════════════════════════════
+
+    public ArchiMateGridEngine() {
+        var prefs = ArchiPlugin.getInstance().getPreferenceStore();
+        ELEM_WIDTH = prefs.getInt(IPreferenceConstants.DEFAULT_ARCHIMATE_FIGURE_WIDTH);
+        ELEM_HEIGHT = prefs.getInt(IPreferenceConstants.DEFAULT_ARCHIMATE_FIGURE_HEIGHT);
+        GRID_SIZE = Math.max(1, prefs.getInt(IPreferenceConstants.GRID_SIZE));
+        MARGIN = prefs.getInt(IPreferenceConstants.MARGIN_WIDTH);
+
+        // Snap spacing constants to grid multiples
+        CELL_PADDING_Y = snapToGrid(40);
+        SIBLING_GAP_X = snapToGrid(30);
+        DIAGONAL_OFFSET_X = snapToGrid(80);
+        COLUMN_GAP = snapToGrid(100);
+        ROW_GAP = snapToGrid(40);
+        LAYER_GAP = snapToGrid(80);
+        GRID_MARGIN = snapToGrid(Math.max(40, MARGIN * 8));
+        CONTAINER_PAD_TOP = snapToGrid(36);
+        CONTAINER_PAD_SIDE = snapToGrid(12);
+        CONTAINER_PAD_BOTTOM = snapToGrid(12);
+    }
+
+    /** Round a value to the nearest grid multiple */
+    private double snapToGrid(double value) {
+        return Math.round(value / GRID_SIZE) * GRID_SIZE;
+    }
+
+    /** Snap an int position to the nearest grid multiple */
+    private int snapInt(double value) {
+        return (int) (Math.round(value / GRID_SIZE) * GRID_SIZE);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Public API
     // ═══════════════════════════════════════════════════════════════════════
@@ -178,6 +222,28 @@ public class ArchiMateGridEngine {
 
         // Phase 3.75: DIAGONAL STAIRCASE — horizontally shift elements to prevent overlap
         applyDiagonalOffsets();
+
+        // Phase 3.76: RE-ALIGN — the staircase may enforce minimum Y spacing,
+        // invalidating the first alignment. Re-align cross-column elements to
+        // the corrected staircase positions.
+        alignCrossColumnElements();
+
+        // Phase 3.8: STRETCH WIDTH — stretch single elements to match connected sibling groups
+        stretchToMatchSiblingGroups();
+
+        // Phase 3.85: CENTER — center single elements over connected elements in same column
+        centerOverConnectedElements();
+
+        // Phase 3.9: STRETCH HEIGHT — stretch elements to span connected elements across columns
+        stretchHeightAcrossColumns();
+
+        // Phase 3.95: SNAP TO GRID — align all positions to the diagram grid
+        for (Map.Entry<IDiagramModelObject, LayoutResult> entry : results.entrySet()) {
+            LayoutResult r = entry.getValue();
+            entry.setValue(new LayoutResult(
+                    snapInt(r.x), snapInt(r.y),
+                    snapInt(r.width), snapInt(r.height)));
+        }
 
         // Phase 4: WRAP — compute container bounds to wrap their children
         for (IDiagramModelObject dmo : diagramModel.getChildren()) {
@@ -610,13 +676,31 @@ public class ArchiMateGridEngine {
                 maxCount = Math.max(maxCount, grid[r][c].elements.size());
             }
 
-            // Only align cells that have fewer elements than the max
-            for (int c = 0; c < NUM_COLS; c++) {
+            // Find the anchor column (most elements) for this row
+            int anchorCol = 0;
+            for (int c = 1; c < NUM_COLS; c++) {
+                if (grid[r][c].elements.size() > grid[r][anchorCol].elements.size()) {
+                    anchorCol = c;
+                }
+            }
+
+            // Process columns outward from the anchor so that closer columns
+            // are aligned first, and farther columns can reference their
+            // already-corrected positions (e.g. col2 → col1 → col0).
+            for (int dist = 1; dist < NUM_COLS; dist++) {
+                for (int dir = -1; dir <= 1; dir += 2) {
+                    int c = anchorCol + dir * dist;
+                    if (c < 0 || c >= NUM_COLS) continue;
+
                 GridCell cell = grid[r][c];
                 if (cell.elements.isEmpty() || cell.elements.size() >= maxCount)
                     continue;
 
                 for (IDiagramModelObject dmo : cell.elements) {
+                    // Skip staircase elements — they keep the Y set by the staircase phase
+                    if (staircaseElements.contains(dmo))
+                        continue;
+
                     LayoutResult myResult = results.get(dmo);
                     if (myResult == null)
                         continue;
@@ -631,7 +715,8 @@ public class ArchiMateGridEngine {
                             continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getTarget();
                         int[] partnerPos = dmoCell.get(partner);
-                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c) {
+                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c
+                                && Math.abs(partnerPos[1] - anchorCol) < dist) {
                             LayoutResult partnerResult = results.get(partner);
                             if (partnerResult != null) {
                                 totalPartnerY += partnerResult.y + partnerResult.height / 2.0;
@@ -646,7 +731,8 @@ public class ArchiMateGridEngine {
                             continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getSource();
                         int[] partnerPos = dmoCell.get(partner);
-                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c) {
+                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c
+                                && Math.abs(partnerPos[1] - anchorCol) < dist) {
                             LayoutResult partnerResult = results.get(partner);
                             if (partnerResult != null) {
                                 totalPartnerY += partnerResult.y + partnerResult.height / 2.0;
@@ -663,6 +749,7 @@ public class ArchiMateGridEngine {
                                 myResult.x, newY, myResult.width, myResult.height));
                     }
                 }
+              }
             }
         }
     }
@@ -681,12 +768,23 @@ public class ArchiMateGridEngine {
      * to match the staircase width, so parent/child elements align visually with their siblings.
      */
     private void applyDiagonalOffsets() {
-        // Track max staircase width per column and which elements are in staircases
+        // Track max staircase width per column
         double[] colStaircaseWidth = new double[NUM_COLS];
-        Set<IDiagramModelObject> staircaseElements = new HashSet<>();
+        staircaseElements.clear();
 
         for (int r = 0; r < NUM_ROWS; r++) {
+            // Find the anchor column (most elements) for this row.
+            // Only the anchor column gets a staircase; other columns
+            // follow through cross-column alignment.
+            int anchorCol = 0;
+            for (int cc = 1; cc < NUM_COLS; cc++) {
+                if (grid[r][cc].elements.size() > grid[r][anchorCol].elements.size()) {
+                    anchorCol = cc;
+                }
+            }
+
             for (int c = 0; c < NUM_COLS; c++) {
+
                 List<SiblingGroup> groups = cellGroups[r][c];
                 if (groups == null || groups.size() <= 1)
                     continue;
@@ -713,12 +811,77 @@ public class ArchiMateGridEngine {
                         return Double.compare(y1, y2);
                     });
 
-                    int n = sortedGroups.size();
+                    // Identify spanning groups: single-member groups connected to 2+
+                    // other groups in this staircase. These are parent/umbrella elements
+                    // that should stretch across the staircase rather than participate in it.
+                    Set<SiblingGroup> spanningGroupSet = new HashSet<>();
+                    Set<IDiagramModelObject> allMembers = new HashSet<>();
+                    for (SiblingGroup g : sortedGroups) {
+                        allMembers.addAll(g.members);
+                    }
+
+                    for (SiblingGroup candidate : sortedGroups) {
+                        if (candidate.members.size() != 1) continue;
+                        IDiagramModelObject dmo = candidate.members.get(0);
+                        int connectedPeers = 0;
+
+                        for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
+                            if (conn.getTarget() instanceof IDiagramModelObject
+                                    && allMembers.contains(conn.getTarget())
+                                    && conn.getTarget() != dmo) {
+                                connectedPeers++;
+                            }
+                        }
+                        for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
+                            if (conn.getSource() instanceof IDiagramModelObject
+                                    && allMembers.contains(conn.getSource())
+                                    && conn.getSource() != dmo) {
+                                connectedPeers++;
+                            }
+                        }
+
+                        if (connectedPeers >= 2) {
+                            spanningGroupSet.add(candidate);
+                        }
+                    }
+
+                    // Filter out spanning groups, keeping only staircase participants
+                    List<SiblingGroup> activeGroups = new ArrayList<>();
+                    for (SiblingGroup g : sortedGroups) {
+                        if (!spanningGroupSet.contains(g)) {
+                            activeGroups.add(g);
+                        }
+                    }
+
+                    // Need at least 2 groups for a staircase
+                    if (activeGroups.size() <= 1) {
+                        continue;
+                    }
+
+                    // Enforce minimum vertical spacing between staircase elements,
+                    // but ONLY in the anchor column. Non-anchor columns get their Y
+                    // from cross-column alignment, so Y enforcement would conflict.
+                    if (c == anchorCol) {
+                    double minYSep = ELEM_HEIGHT + CELL_PADDING_Y;
+                    for (int i = 1; i < activeGroups.size(); i++) {
+                        LayoutResult prevRes = results.get(activeGroups.get(i - 1).members.get(0));
+                        LayoutResult curRes = results.get(activeGroups.get(i).members.get(0));
+                        if (curRes.y - prevRes.y < minYSep) {
+                            int newY = (int) Math.round(prevRes.y + minYSep);
+                            for (IDiagramModelObject dmo : activeGroups.get(i).members) {
+                                LayoutResult res = results.get(dmo);
+                                results.put(dmo, new LayoutResult(res.x, newY, res.width, res.height));
+                            }
+                        }
+                    }
+                    } // end Y enforcement (anchor only)
+
+                    int n = activeGroups.size();
                     
                     // 1. Calculate the exact width of each group
                     double[] groupWidths = new double[n];
                     for (int i = 0; i < n; i++) {
-                        SiblingGroup group = sortedGroups.get(i);
+                        SiblingGroup group = activeGroups.get(i);
                         double w = 0;
                         for (int j = 0; j < group.members.size(); j++) {
                             w += ELEM_WIDTH;
@@ -744,7 +907,7 @@ public class ArchiMateGridEngine {
 
                     // 3. Apply the shift to perfectly center the entire staircase box in the column
                     for (int i = 0; i < n; i++) {
-                        SiblingGroup group = sortedGroups.get(i);
+                        SiblingGroup group = activeGroups.get(i);
                         
                         double centerOffset = (i - (n - 1) / 2.0) * DIAGONAL_OFFSET_X;
                         double localStartX = centerOffset - groupWidths[i] / 2.0;
@@ -761,6 +924,18 @@ public class ArchiMateGridEngine {
                                     res.height));
                                     
                             curX += ELEM_WIDTH + SIBLING_GAP_X;
+                            staircaseElements.add(dmo);
+                        }
+                    }
+
+                    // 4. Stretch spanning elements to the full staircase width
+                    for (SiblingGroup sg : spanningGroupSet) {
+                        IDiagramModelObject dmo = sg.members.get(0);
+                        LayoutResult res = results.get(dmo);
+                        if (res != null) {
+                            int newWidth = (int) Math.round(staircaseWidth);
+                            int newX = (int) Math.round(columnCenterX - staircaseWidth / 2.0);
+                            results.put(dmo, new LayoutResult(newX, res.y, newWidth, res.height));
                             staircaseElements.add(dmo);
                         }
                     }
@@ -790,28 +965,275 @@ public class ArchiMateGridEngine {
                     if (staircaseElements.contains(dmo))
                         continue;
 
-                    // Check if this element has any connection to a staircase element
-                    boolean connected = false;
+                    // Count connections to staircase elements — require 2+ to stretch
+                    // (single connections should not cause full-width stretching)
+                    int staircaseConnCount = 0;
                     for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
                         if (conn.getTarget() instanceof IDiagramModelObject
                                 && staircaseElements.contains(conn.getTarget())) {
-                            connected = true;
-                            break;
+                            staircaseConnCount++;
                         }
                     }
-                    if (!connected) {
-                        for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
-                            if (conn.getSource() instanceof IDiagramModelObject
-                                    && staircaseElements.contains(conn.getSource())) {
-                                connected = true;
-                                break;
+                    for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
+                        if (conn.getSource() instanceof IDiagramModelObject
+                                && staircaseElements.contains(conn.getSource())) {
+                            staircaseConnCount++;
+                        }
+                    }
+
+                    if (staircaseConnCount >= 2) {
+                        LayoutResult res = results.get(dmo);
+                        results.put(dmo, new LayoutResult(newX, res.y, newWidth, res.height));
+                    }
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Phase 3.8: STRETCH (match connected sibling group widths)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Stretches single elements to match the combined width of the sibling
+     * groups they connect to.
+     *
+     * For example, if a Business Actor (single element) connects to two
+     * Application Interfaces placed side-by-side, the Actor is stretched
+     * to span the same width as the combined interfaces.
+     *
+     * Only affects single-element groups connecting to multi-member groups.
+     * Does not shrink elements already wider (e.g. from staircase stretch).
+     */
+    private void stretchToMatchSiblingGroups() {
+        // 1. Build reverse lookup: element → its SiblingGroup
+        Map<IDiagramModelObject, SiblingGroup> elementToGroup = new HashMap<>();
+        for (int r = 0; r < NUM_ROWS; r++) {
+            for (int c = 0; c < NUM_COLS; c++) {
+                if (cellGroups[r][c] != null) {
+                    for (SiblingGroup g : cellGroups[r][c]) {
+                        for (IDiagramModelObject m : g.members) {
+                            elementToGroup.put(m, g);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. For each single-element group, find widest connected sibling group
+        for (int r = 0; r < NUM_ROWS; r++) {
+            for (int c = 0; c < NUM_COLS; c++) {
+                List<SiblingGroup> groups = cellGroups[r][c];
+                if (groups == null)
+                    continue;
+
+                for (SiblingGroup group : groups) {
+                    if (group.members.size() != 1)
+                        continue;
+
+                    IDiagramModelObject dmo = group.members.get(0);
+                    double maxConnectedGroupWidth = 0;
+
+                    // Check outgoing connections
+                    for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
+                        if (!(conn.getTarget() instanceof IDiagramModelObject))
+                            continue;
+                        IDiagramModelObject target = (IDiagramModelObject) conn.getTarget();
+                        SiblingGroup targetGroup = elementToGroup.get(target);
+                        if (targetGroup != null && targetGroup.members.size() > 1) {
+                            maxConnectedGroupWidth = Math.max(maxConnectedGroupWidth,
+                                    computeSiblingGroupWidth(targetGroup));
+                        }
+                    }
+
+                    // Check incoming connections
+                    for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
+                        if (!(conn.getSource() instanceof IDiagramModelObject))
+                            continue;
+                        IDiagramModelObject source = (IDiagramModelObject) conn.getSource();
+                        SiblingGroup sourceGroup = elementToGroup.get(source);
+                        if (sourceGroup != null && sourceGroup.members.size() > 1) {
+                            maxConnectedGroupWidth = Math.max(maxConnectedGroupWidth,
+                                    computeSiblingGroupWidth(sourceGroup));
+                        }
+                    }
+
+                    // 3. Stretch if a wider sibling group was found
+                    if (maxConnectedGroupWidth > ELEM_WIDTH) {
+                        LayoutResult res = results.get(dmo);
+                        if (res != null && maxConnectedGroupWidth > res.width) {
+                            int newWidth = (int) Math.round(maxConnectedGroupWidth);
+                            int newX = (int) Math.round(res.x + res.width / 2.0 - newWidth / 2.0);
+                            results.put(dmo, new LayoutResult(newX, res.y, newWidth, res.height));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Computes the total rendered width of a sibling group (elements side by side).
+     */
+    private double computeSiblingGroupWidth(SiblingGroup group) {
+        double width = 0;
+        for (int i = 0; i < group.members.size(); i++) {
+            width += ELEM_WIDTH;
+            if (i > 0)
+                width += SIBLING_GAP_X;
+        }
+        return width;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Phase 3.85: CENTER (align X over connected elements in same column)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Centers single elements horizontally over their connected elements
+     * in adjacent rows of the same column.
+     *
+     * For example, if Application Interface A (row 5, col 2) connects to
+     * Application Component AB (row 4, col 2), the Interface is repositioned
+     * to center over the Component's X position rather than the column center.
+     */
+    private void centerOverConnectedElements() {
+        for (int r = 0; r < NUM_ROWS; r++) {
+            for (int c = 0; c < NUM_COLS; c++) {
+                List<SiblingGroup> groups = cellGroups[r][c];
+                if (groups == null)
+                    continue;
+
+                for (SiblingGroup group : groups) {
+                    if (group.members.size() != 1)
+                        continue;
+
+                    IDiagramModelObject dmo = group.members.get(0);
+                    if (staircaseElements.contains(dmo))
+                        continue;
+
+                    LayoutResult myRes = results.get(dmo);
+                    if (myRes == null)
+                        continue;
+
+                    // Find connected elements in the SAME column but DIFFERENT rows
+                    double totalCenterX = 0;
+                    double minX = Double.MAX_VALUE;
+                    double maxX = Double.MIN_VALUE;
+                    int partnerCount = 0;
+
+                    for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
+                        if (!(conn.getTarget() instanceof IDiagramModelObject))
+                            continue;
+                        IDiagramModelObject partner = (IDiagramModelObject) conn.getTarget();
+                        int[] partnerPos = dmoCell.get(partner);
+                        if (partnerPos != null && partnerPos[1] == c && partnerPos[0] != r) {
+                            LayoutResult partnerRes = results.get(partner);
+                            if (partnerRes != null) {
+                                double cx = partnerRes.x + partnerRes.width / 2.0;
+                                totalCenterX += cx;
+                                minX = Math.min(minX, partnerRes.x);
+                                maxX = Math.max(maxX, partnerRes.x + partnerRes.width);
+                                partnerCount++;
+                            }
+                        }
+                    }
+                    for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
+                        if (!(conn.getSource() instanceof IDiagramModelObject))
+                            continue;
+                        IDiagramModelObject partner = (IDiagramModelObject) conn.getSource();
+                        int[] partnerPos = dmoCell.get(partner);
+                        if (partnerPos != null && partnerPos[1] == c && partnerPos[0] != r) {
+                            LayoutResult partnerRes = results.get(partner);
+                            if (partnerRes != null) {
+                                double cx = partnerRes.x + partnerRes.width / 2.0;
+                                totalCenterX += cx;
+                                minX = Math.min(minX, partnerRes.x);
+                                maxX = Math.max(maxX, partnerRes.x + partnerRes.width);
+                                partnerCount++;
                             }
                         }
                     }
 
-                    if (connected) {
-                        LayoutResult res = results.get(dmo);
-                        results.put(dmo, new LayoutResult(newX, res.y, newWidth, res.height));
+                    if (partnerCount > 0) {
+                        double avgCenterX = totalCenterX / partnerCount;
+                        int newX = (int) Math.round(avgCenterX - myRes.width / 2.0);
+                        results.put(dmo, new LayoutResult(newX, myRes.y, myRes.width, myRes.height));
+                    }
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Phase 3.9: STRETCH HEIGHT (span connected elements across columns)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Stretches the height of elements that connect to 2+ elements across
+     * columns at different Y positions.
+     *
+     * For example, Application Process connects to both Function A and
+     * Function B in an adjacent column. It stretches vertically to span
+     * from Function A's top to Function B's bottom.
+     */
+    private void stretchHeightAcrossColumns() {
+        for (int r = 0; r < NUM_ROWS; r++) {
+            for (int c = 0; c < NUM_COLS; c++) {
+                List<SiblingGroup> groups = cellGroups[r][c];
+                if (groups == null)
+                    continue;
+
+                for (SiblingGroup group : groups) {
+                    if (group.members.size() != 1)
+                        continue;
+
+                    IDiagramModelObject dmo = group.members.get(0);
+                    LayoutResult myRes = results.get(dmo);
+                    if (myRes == null)
+                        continue;
+
+                    // Find cross-column partners in the same row
+                    double minPartnerY = Double.MAX_VALUE;
+                    double maxPartnerBottom = Double.MIN_VALUE;
+                    int partnerCount = 0;
+
+                    for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
+                        if (!(conn.getTarget() instanceof IDiagramModelObject))
+                            continue;
+                        IDiagramModelObject partner = (IDiagramModelObject) conn.getTarget();
+                        int[] partnerPos = dmoCell.get(partner);
+                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c) {
+                            LayoutResult partnerRes = results.get(partner);
+                            if (partnerRes != null) {
+                                minPartnerY = Math.min(minPartnerY, partnerRes.y);
+                                maxPartnerBottom = Math.max(maxPartnerBottom,
+                                        partnerRes.y + partnerRes.height);
+                                partnerCount++;
+                            }
+                        }
+                    }
+                    for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
+                        if (!(conn.getSource() instanceof IDiagramModelObject))
+                            continue;
+                        IDiagramModelObject partner = (IDiagramModelObject) conn.getSource();
+                        int[] partnerPos = dmoCell.get(partner);
+                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c) {
+                            LayoutResult partnerRes = results.get(partner);
+                            if (partnerRes != null) {
+                                minPartnerY = Math.min(minPartnerY, partnerRes.y);
+                                maxPartnerBottom = Math.max(maxPartnerBottom,
+                                        partnerRes.y + partnerRes.height);
+                                partnerCount++;
+                            }
+                        }
+                    }
+
+                    // Only stretch if partners span more than one element height
+                    if (partnerCount >= 2 && maxPartnerBottom - minPartnerY > ELEM_HEIGHT) {
+                        int newY = (int) Math.round(minPartnerY);
+                        int newHeight = (int) Math.round(maxPartnerBottom - minPartnerY);
+                        results.put(dmo, new LayoutResult(myRes.x, newY, myRes.width, newHeight));
                     }
                 }
             }
