@@ -44,7 +44,8 @@ Beyond simple grid placement, the plugin applies several smart layout passes:
 - **Horizontal stretch** — When siblings form a diagonal staircase, the element they all connect to — their common parent or child — is automatically stretched in width to span the full staircase, visually anchoring the group.
 - **Vertical stretch** — The same logic applied vertically: when an element connects to multiple elements at different heights across aspect columns, it is stretched in height to span them.
 - **Centering** — A single element is centered over its connected elements within the same aspect column (e.g., an Application Interface positioned directly above the Application Component it belongs to, rather than drifting to the column center).
-- **Container wrapping** — Grouping elements (such as Application Components containing child elements) automatically grow to enclose their children with appropriate padding.
+- **Nested elements handling** — ArchiMate allows elements to be visually nested inside grouping elements, but auto-layouters often struggle with this. The plugin automatically detects nested elements and presents a dialog allowing you to either "De-nestify" them (move them out of the container) or "Flatten" them (delete the container but keep the elements) before applying the grid layout.
+- **Relationship-type awareness** — The plugin follows the [ArchiMate 3.2 Specification (Appendix B: Relationships)](https://pubs.opengroup.org/architecture/archimate3-doc/ch-relationships-Normative.html) hierarchy. Strong structural relationships (Composition, Aggregation, Assignment) drive staircase, alignment, and stretching decisions, while weak relationships like Association are excluded from influencing the layout.
 - **Grid snapping** — All positions and dimensions align to the diagram grid from your Archi preferences, producing a clean, pixel-perfect result.
 
 ### Respects Your Preferences

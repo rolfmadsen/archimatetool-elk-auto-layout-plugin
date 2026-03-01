@@ -1,5 +1,7 @@
 package com.archimatetool.autolayout;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import org.eclipse.core.commands.AbstractHandler;
@@ -30,6 +32,34 @@ public class LayoutHandler extends AbstractHandler {
                 IArchimateDiagramModel diagramModel = (IArchimateDiagramModel) editor.getModel();
 
                 if (diagramModel != null) {
+                    // Check for nested elements
+                    List<IDiagramModelContainer> nestedContainers = findNestedContainers(diagramModel);
+                    org.eclipse.gef.commands.CompoundCommand preLayoutCommand = new org.eclipse.gef.commands.CompoundCommand("Pre-Layout Flattening");
+
+                    if (!nestedContainers.isEmpty()) {
+                        NestingDialog dialog = new NestingDialog(HandlerUtil.getActiveShell(event), nestedContainers);
+                        if (dialog.open() != org.eclipse.jface.window.Window.OK) {
+                            return null;
+                        }
+
+                        for (NestingDialog.NestingEntry entry : dialog.getEntries()) {
+                            if (entry.getAction() == NestingDialog.Action.FLATTEN) {
+                                flattenContainer(entry.getContainer(), preLayoutCommand);
+                            } else if (entry.getAction() == NestingDialog.Action.DE_NESTIFY) {
+                                denestifyContainer(entry.getContainer(), preLayoutCommand);
+                            }
+                        }
+                    }
+
+                    // Execute pre-layout commands if any
+                    if (preLayoutCommand.canExecute()) {
+                        org.eclipse.gef.commands.CommandStack stack = (org.eclipse.gef.commands.CommandStack) editor
+                                .getAdapter(org.eclipse.gef.commands.CommandStack.class);
+                        if (stack != null) {
+                            stack.execute(preLayoutCommand);
+                        }
+                    }
+
                     // 1. Compute grid layout
                     ArchiMateGridEngine engine = new ArchiMateGridEngine();
                     Map<IDiagramModelObject, ArchiMateGridEngine.LayoutResult> layoutResults = engine
@@ -86,6 +116,105 @@ public class LayoutHandler extends AbstractHandler {
         }
 
         return null;
+    }
+
+    private List<IDiagramModelContainer> findNestedContainers(IDiagramModelContainer container) {
+        List<IDiagramModelContainer> result = new ArrayList<>();
+        for (IDiagramModelObject dmo : container.getChildren()) {
+            if (dmo instanceof IDiagramModelContainer && !((IDiagramModelContainer) dmo).getChildren().isEmpty()) {
+                result.add((IDiagramModelContainer) dmo);
+                result.addAll(findNestedContainers((IDiagramModelContainer) dmo));
+            }
+        }
+        return result;
+    }
+
+    private void flattenContainer(IDiagramModelContainer container, org.eclipse.gef.commands.CompoundCommand compoundCommand) {
+        IDiagramModelContainer parent = (IDiagramModelContainer) ((IDiagramModelObject) container).eContainer();
+        
+        // Move children to parent
+        for (IDiagramModelObject child : new ArrayList<>(container.getChildren())) {
+            IBounds absBounds = getAbsoluteBounds(child);
+            compoundCommand.add(new RemoveChildCommand(container, child));
+            compoundCommand.add(new AddChildCommand(parent, child, absBounds));
+        }
+        
+        // Delete container
+        compoundCommand.add(com.archimatetool.editor.diagram.commands.DiagramCommandFactory.createDeleteDiagramObjectCommand((IDiagramModelObject) container, false));
+    }
+
+    private void denestifyContainer(IDiagramModelContainer container, org.eclipse.gef.commands.CompoundCommand compoundCommand) {
+        IArchimateDiagramModel diagramModel = (IArchimateDiagramModel) container.getDiagramModel();
+        
+        // Move children to top-level
+        for (IDiagramModelObject child : new ArrayList<>(container.getChildren())) {
+            IBounds absBounds = getAbsoluteBounds(child);
+            compoundCommand.add(new RemoveChildCommand(container, child));
+            compoundCommand.add(new AddChildCommand(diagramModel, child, absBounds));
+        }
+    }
+
+    private IBounds getAbsoluteBounds(IDiagramModelObject dmo) {
+        IBounds bounds = dmo.getBounds();
+        int x = bounds.getX();
+        int y = bounds.getY();
+        
+        org.eclipse.emf.ecore.EObject parent = dmo.eContainer();
+        while (parent instanceof IDiagramModelObject) {
+            IBounds pb = ((IDiagramModelObject) parent).getBounds();
+            x += pb.getX();
+            y += pb.getY();
+            parent = parent.eContainer();
+        }
+        
+        return IArchimateFactory.eINSTANCE.createBounds(x, y, bounds.getWidth(), bounds.getHeight());
+    }
+
+    private static class RemoveChildCommand extends org.eclipse.gef.commands.Command {
+        private IDiagramModelContainer container;
+        private IDiagramModelObject child;
+        private int index;
+
+        public RemoveChildCommand(IDiagramModelContainer container, IDiagramModelObject child) {
+            this.container = container;
+            this.child = child;
+        }
+
+        @Override
+        public void execute() {
+            index = container.getChildren().indexOf(child);
+            container.getChildren().remove(child);
+        }
+
+        @Override
+        public void undo() {
+            container.getChildren().add(index, child);
+        }
+    }
+
+    private static class AddChildCommand extends org.eclipse.gef.commands.Command {
+        private IDiagramModelContainer container;
+        private IDiagramModelObject child;
+        private IBounds oldBounds, newBounds;
+
+        public AddChildCommand(IDiagramModelContainer container, IDiagramModelObject child, IBounds newBounds) {
+            this.container = container;
+            this.child = child;
+            this.newBounds = newBounds;
+            this.oldBounds = child.getBounds();
+        }
+
+        @Override
+        public void execute() {
+            child.setBounds(newBounds);
+            container.getChildren().add(child);
+        }
+
+        @Override
+        public void undo() {
+            container.getChildren().remove(child);
+            child.setBounds(oldBounds);
+        }
     }
 
     /**

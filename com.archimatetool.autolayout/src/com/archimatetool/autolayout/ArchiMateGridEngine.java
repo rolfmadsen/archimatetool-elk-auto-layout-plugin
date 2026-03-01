@@ -12,6 +12,7 @@ import java.util.Set;
 import com.archimatetool.editor.ArchiPlugin;
 import com.archimatetool.editor.preferences.IPreferenceConstants;
 import com.archimatetool.model.*;
+import com.archimatetool.model.impl.*;
 
 /**
  * Custom ArchiMate 2D Grid Layout Engine.
@@ -87,6 +88,9 @@ public class ArchiMateGridEngine {
     /** Number of ArchiMate aspects */
     private static final int NUM_COLS = 3; // Cols 0-2
 
+    /** Minimum relationship weight for layout influence (Associations excluded) */
+    private static final int MIN_LAYOUT_WEIGHT = 2;
+
     // ═══════════════════════════════════════════════════════════════════════
     // Internal Data Structures
     // ═══════════════════════════════════════════════════════════════════════
@@ -160,12 +164,12 @@ public class ArchiMateGridEngine {
         MARGIN = prefs.getInt(IPreferenceConstants.MARGIN_WIDTH);
 
         // Snap spacing constants to grid multiples
-        CELL_PADDING_Y = snapToGrid(40);
-        SIBLING_GAP_X = snapToGrid(30);
-        DIAGONAL_OFFSET_X = snapToGrid(80);
-        COLUMN_GAP = snapToGrid(100);
-        ROW_GAP = snapToGrid(40);
-        LAYER_GAP = snapToGrid(80);
+        CELL_PADDING_Y = 2 * GRID_SIZE; // Use exactly 2 grid spaces as requested
+        SIBLING_GAP_X = 2 * GRID_SIZE;
+        DIAGONAL_OFFSET_X = 4 * GRID_SIZE;
+        COLUMN_GAP = 5 * GRID_SIZE;
+        ROW_GAP = 2 * GRID_SIZE;
+        LAYER_GAP = 3 * GRID_SIZE;
         GRID_MARGIN = snapToGrid(Math.max(40, MARGIN * 8));
         CONTAINER_PAD_TOP = snapToGrid(36);
         CONTAINER_PAD_SIDE = snapToGrid(12);
@@ -180,6 +184,30 @@ public class ArchiMateGridEngine {
     /** Snap an int position to the nearest grid multiple */
     private int snapInt(double value) {
         return (int) (Math.round(value / GRID_SIZE) * GRID_SIZE);
+    }
+
+    /**
+     * Returns a weight (0–10) for a connection based on its ArchiMate relationship type.
+     * Structural relationships rank highest, Associations lowest.
+     * Connections without an ArchiMate relationship default to medium weight.
+     */
+    private int getRelationshipWeight(IDiagramModelConnection conn) {
+        if (conn instanceof IDiagramModelArchimateConnection) {
+            IArchimateRelationship rel =
+                ((IDiagramModelArchimateConnection) conn).getArchimateRelationship();
+            if (rel instanceof ICompositionRelationship)    return 10;
+            if (rel instanceof IAggregationRelationship)    return 9;
+            if (rel instanceof IAssignmentRelationship)     return 8;
+            if (rel instanceof IRealizationRelationship)    return 7;
+            if (rel instanceof IServingRelationship)        return 6;
+            if (rel instanceof IAccessRelationship)         return 5;
+            if (rel instanceof ITriggeringRelationship)     return 5;
+            if (rel instanceof IFlowRelationship)           return 5;
+            if (rel instanceof IInfluenceRelationship)      return 3;
+            if (rel instanceof ISpecializationRelationship) return 2;
+            if (rel instanceof IAssociationRelationship)    return 1;
+        }
+        return 5; // default for non-ArchiMate connections
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -236,6 +264,9 @@ public class ArchiMateGridEngine {
 
         // Phase 3.9: STRETCH HEIGHT — stretch elements to span connected elements across columns
         stretchHeightAcrossColumns();
+
+        // Phase 3.92: DE-COLLIDE — ensure stretched elements don't overlap vertically
+        resolveVerticalCollisions();
 
         // Phase 3.95: SNAP TO GRID — align all positions to the diagram grid
         for (Map.Entry<IDiagramModelObject, LayoutResult> entry : results.entrySet()) {
@@ -496,7 +527,9 @@ public class ArchiMateGridEngine {
                     // Only elements of the SAME type will staircase. Multiply DIAGONAL_OFFSET_X
                     // by solely the number of same-type groups.
                     int sameTypeCount = typeCounts.get(getArchiMateClassName(group));
-                    double effectiveWidth = groupWidth + (sameTypeCount - 1) * DIAGONAL_OFFSET_X;
+                    // Cap staircase width contribution to prevent gutter expansion in large models
+                    double staircaseOffset = Math.min(sameTypeCount - 1, 3) * DIAGONAL_OFFSET_X;
+                    double effectiveWidth = groupWidth + staircaseOffset;
                     
                     cellWidth = Math.max(cellWidth, effectiveWidth);
                     cellHeight += groupHeight;
@@ -713,6 +746,7 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
                         if (!(conn.getTarget() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getTarget();
                         int[] partnerPos = dmoCell.get(partner);
                         if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c
@@ -729,6 +763,7 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
                         if (!(conn.getSource() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getSource();
                         int[] partnerPos = dmoCell.get(partner);
                         if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c
@@ -828,14 +863,16 @@ public class ArchiMateGridEngine {
                         for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
                             if (conn.getTarget() instanceof IDiagramModelObject
                                     && allMembers.contains(conn.getTarget())
-                                    && conn.getTarget() != dmo) {
+                                    && conn.getTarget() != dmo
+                                    && getRelationshipWeight(conn) >= MIN_LAYOUT_WEIGHT) {
                                 connectedPeers++;
                             }
                         }
                         for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
                             if (conn.getSource() instanceof IDiagramModelObject
                                     && allMembers.contains(conn.getSource())
-                                    && conn.getSource() != dmo) {
+                                    && conn.getSource() != dmo
+                                    && getRelationshipWeight(conn) >= MIN_LAYOUT_WEIGHT) {
                                 connectedPeers++;
                             }
                         }
@@ -970,14 +1007,26 @@ public class ArchiMateGridEngine {
                     int staircaseConnCount = 0;
                     for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
                         if (conn.getTarget() instanceof IDiagramModelObject
-                                && staircaseElements.contains(conn.getTarget())) {
-                            staircaseConnCount++;
+                                && staircaseElements.contains(conn.getTarget())
+                                && getRelationshipWeight(conn) >= MIN_LAYOUT_WEIGHT) {
+                            
+                            // Only count if the staircase element is in the same column
+                            int[] targetCell = dmoCell.get(conn.getTarget());
+                            if (targetCell != null && targetCell[1] == c) {
+                                staircaseConnCount++;
+                            }
                         }
                     }
                     for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
                         if (conn.getSource() instanceof IDiagramModelObject
-                                && staircaseElements.contains(conn.getSource())) {
-                            staircaseConnCount++;
+                                && staircaseElements.contains(conn.getSource())
+                                && getRelationshipWeight(conn) >= MIN_LAYOUT_WEIGHT) {
+                                    
+                            // Only count if the staircase element is in the same column
+                            int[] sourceCell = dmoCell.get(conn.getSource());
+                            if (sourceCell != null && sourceCell[1] == c) {
+                                staircaseConnCount++;
+                            }
                         }
                     }
 
@@ -1038,6 +1087,7 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
                         if (!(conn.getTarget() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject target = (IDiagramModelObject) conn.getTarget();
                         SiblingGroup targetGroup = elementToGroup.get(target);
                         if (targetGroup != null && targetGroup.members.size() > 1) {
@@ -1050,6 +1100,7 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
                         if (!(conn.getSource() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject source = (IDiagramModelObject) conn.getSource();
                         SiblingGroup sourceGroup = elementToGroup.get(source);
                         if (sourceGroup != null && sourceGroup.members.size() > 1) {
@@ -1125,6 +1176,7 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
                         if (!(conn.getTarget() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getTarget();
                         int[] partnerPos = dmoCell.get(partner);
                         if (partnerPos != null && partnerPos[1] == c && partnerPos[0] != r) {
@@ -1141,6 +1193,7 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
                         if (!(conn.getSource() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getSource();
                         int[] partnerPos = dmoCell.get(partner);
                         if (partnerPos != null && partnerPos[1] == c && partnerPos[0] != r) {
@@ -1201,9 +1254,10 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getSourceConnections()) {
                         if (!(conn.getTarget() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getTarget();
                         int[] partnerPos = dmoCell.get(partner);
-                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c) {
+                        if (partnerPos != null && Math.abs(partnerPos[0] - r) <= 1 && partnerPos[1] != c) {
                             LayoutResult partnerRes = results.get(partner);
                             if (partnerRes != null) {
                                 minPartnerY = Math.min(minPartnerY, partnerRes.y);
@@ -1216,9 +1270,10 @@ public class ArchiMateGridEngine {
                     for (IDiagramModelConnection conn : dmo.getTargetConnections()) {
                         if (!(conn.getSource() instanceof IDiagramModelObject))
                             continue;
+                        if (getRelationshipWeight(conn) < MIN_LAYOUT_WEIGHT) continue;
                         IDiagramModelObject partner = (IDiagramModelObject) conn.getSource();
                         int[] partnerPos = dmoCell.get(partner);
-                        if (partnerPos != null && partnerPos[0] == r && partnerPos[1] != c) {
+                        if (partnerPos != null && Math.abs(partnerPos[0] - r) <= 1 && partnerPos[1] != c) {
                             LayoutResult partnerRes = results.get(partner);
                             if (partnerRes != null) {
                                 minPartnerY = Math.min(minPartnerY, partnerRes.y);
@@ -1235,6 +1290,60 @@ public class ArchiMateGridEngine {
                         int newHeight = (int) Math.round(maxPartnerBottom - minPartnerY);
                         results.put(dmo, new LayoutResult(myRes.x, newY, myRes.width, newHeight));
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolves vertical overlaps caused by height stretching.
+     * Ensures all elements in a column maintain their required vertical gaps.
+     */
+    private void resolveVerticalCollisions() {
+        for (int c = 0; c < NUM_COLS; c++) {
+            // Collect all diagram objects in this column
+            List<IDiagramModelObject> columnElements = new ArrayList<>();
+            for (int r = 0; r < NUM_ROWS; r++) {
+                columnElements.addAll(grid[r][c].elements);
+            }
+
+            if (columnElements.size() <= 1)
+                continue;
+
+            // Sort by their current physical Y position
+            columnElements.sort((d1, d2) -> {
+                LayoutResult r1 = results.get(d1);
+                LayoutResult r2 = results.get(d2);
+                if (r1 == null || r2 == null) return 0;
+                return Integer.compare(r1.y, r2.y);
+            });
+
+            // Ensure vertical separation
+            for (int i = 1; i < columnElements.size(); i++) {
+                IDiagramModelObject prev = columnElements.get(i - 1);
+                IDiagramModelObject curr = columnElements.get(i);
+                LayoutResult prevRes = results.get(prev);
+                LayoutResult currRes = results.get(curr);
+                
+                if (prevRes == null || currRes == null) continue;
+
+                int prevRow = dmoCell.get(prev)[0];
+                int currRow = dmoCell.get(curr)[0];
+
+                double requiredGap;
+                if (prevRow == currRow) {
+                    requiredGap = CELL_PADDING_Y;
+                } else if (getLayerGroup(prevRow) == getLayerGroup(currRow)) {
+                    requiredGap = ROW_GAP;
+                } else {
+                    requiredGap = LAYER_GAP;
+                }
+
+                int minAllowableY = (int) Math.round(prevRes.y + prevRes.height + requiredGap);
+
+                if (currRes.y < minAllowableY) {
+                    // Shift this element down
+                    results.put(curr, new LayoutResult(currRes.x, minAllowableY, currRes.width, currRes.height));
                 }
             }
         }
